@@ -1,0 +1,17 @@
+[package]
+name = "replay"
+version = "0.1.0"
+edition = "2021"
+description = "Phase 0 replay tool: re-send a saved InnerTube request with a freshly computed SAPISIDHASH."
+license = "TBD"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+sha1 = "=0.11.0"
+innertube = { path = "../../innertube" }
+
+[dev-dependencies]
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "macros", "time", "net", "io-util"] }

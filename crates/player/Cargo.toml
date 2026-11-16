@@ -1,0 +1,23 @@
+[package]
+name = "player"
+version = "0.1.0"
+edition = "2021"
+description = "libmpv wrapper: queue, gapless, speed, quality switching, subtitles, chapters."
+license = "TBD"
+
+[features]
+default = []
+# Enable only where libmpv is installed. Default build stays testable offline.
+mpv = ["dep:libmpv2"]
+
+[dependencies]
+yt-model = { path = "../yt-model" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+url.workspace = true
+libmpv2 = { version = "=7.0.1", optional = true }
+
+[dev-dependencies]
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "macros"] }

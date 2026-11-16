@@ -1,0 +1,16 @@
+[package]
+name = "feeds"
+version = "0.1.0"
+edition = "2021"
+license = "TBD — owner must choose (see docs/PLAN.md §6.1; do not ship without a LICENSE file)"
+description = "Feed fetching and parsing on top of crates/innertube, driven by captured fixtures"
+
+[dependencies]
+innertube = { path = "../innertube" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+quick-xml = "=0.42.0"
+tracing = { workspace = true }

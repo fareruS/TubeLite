@@ -1,0 +1,1 @@
+{"$schema":"https://schema.tauri.app/config/2/capabilities","description":"Sign-in popup and silent refresh windows. They load Google/YouTube pages only and make no IPC calls; the Rust side watches navigation and reads the cookie store.","identifier":"login","permissions":[],"windows":["login","login-refresh"]}

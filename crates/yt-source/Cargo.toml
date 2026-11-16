@@ -1,0 +1,20 @@
+[package]
+name = "yt-source"
+version = "0.1.0"
+edition = "2021"
+description = "StreamSource trait + implementations. No Tauri, no mpv, no OS imports."
+license = "TBD"
+
+[dependencies]
+yt-model = { path = "../yt-model" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+reqwest.workspace = true
+chrono.workspace = true
+sha1 = "=0.11.0"
+async-trait = "=0.1.88"
+
+[dev-dependencies]
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "macros", "time"] }

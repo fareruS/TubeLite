@@ -1,0 +1,210 @@
+{
+  "method": "POST",
+  "url": "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+  "headers": {
+    ":authority": "www.youtube.com",
+    ":method": "POST",
+    ":path": "/youtubei/v1/player?prettyPrint=false",
+    ":scheme": "https",
+    "accept": "*/*",
+    "accept-encoding": "gzip, deflate, br, zstd",
+    "accept-language": "en-US,en;q=0.9,id;q=0.8",
+    "content-encoding": "gzip",
+    "content-length": "7715",
+    "content-type": "application/json",
+    "device-memory": "8",
+    "dnt": "1",
+    "origin": "https://www.youtube.com",
+    "priority": "u=1, i",
+    "referer": "https://www.youtube.com/results?search_query=rust+programmming",
+    "sec-ch-dpr": "1",
+    "sec-ch-ua": "\"Not-A.Brand\";v=\"99\", \"Google Chrome\";v=\"157\", \"Chromium\";v=\"157\"",
+    "sec-ch-ua-arch": "\"x86\"",
+    "sec-ch-ua-bitness": "\"64\"",
+    "sec-ch-ua-form-factors": "\"Desktop\"",
+    "sec-ch-ua-full-version": "\"157.0.8103.52\"",
+    "sec-ch-ua-full-version-list": "\"Not-A.Brand\";v=\"99.0.0.0\", \"Google Chrome\";v=\"157.0.8103.52\", \"Chromium\";v=\"157.0.8103.52\"",
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-model": "\"\"",
+    "sec-ch-ua-platform": "\"Windows\"",
+    "sec-ch-ua-platform-version": "\"10.0.0\"",
+    "sec-ch-ua-wow64": "?0",
+    "sec-ch-viewport-width": "979",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "same-origin",
+    "sec-fetch-site": "same-origin",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36",
+    "x-browser-channel": "stable",
+    "x-browser-copyright": "Copyright 2026 Google LLC. All Rights Reserved.",
+    "x-browser-validation": "QWt1NBa2VnsdEj4LquNCuopbMWA=",
+    "x-browser-year": "2026",
+    "x-client-data": "REDACTED",
+    "x-goog-authuser": "0",
+    "x-origin": "https://www.youtube.com",
+    "x-sec-ch-ua-not-a-border": "ezfbqcvywxcywzrgraezcwxxdzgsvzbr",
+    "x-youtube-bootstrap-logged-in": "true",
+    "x-youtube-client-name": "1",
+    "x-youtube-client-version": "2.20261112.10.00"
+  },
+  "body": {
+    "context": {
+      "client": {
+        "hl": "en",
+        "gl": "ID",
+        "remoteHost": "REDACTED",
+        "deviceMake": "",
+        "deviceModel": "",
+        "visitorData": "REDACTED",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36,gzip(gfe)",
+        "clientName": "WEB",
+        "clientVersion": "2.20261112.10.00",
+        "osName": "Windows",
+        "osVersion": "10.0",
+        "originalUrl": "https://www.youtube.com/watch?v=mVe1LOu5LfQ",
+        "platform": "DESKTOP",
+        "clientFormFactor": "UNKNOWN_FORM_FACTOR",
+        "windowWidthPoints": 979,
+        "configInfo": "REDACTED",
+        "screenDensityFloat": 1,
+        "userInterfaceTheme": "USER_INTERFACE_THEME_DARK",
+        "timeZone": "Asia/Singapore",
+        "browserName": "Chrome",
+        "browserVersion": "157.0.0.0",
+        "memoryTotalKbytes": "8000000",
+        "acceptHeader": "text/html,application/xhtml+xml,application/xml;q=0.9,image/jxl,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "deviceExperimentId": "REDACTED",
+        "rolloutToken": "REDACTED",
+        "screenWidthPoints": 979,
+        "screenHeightPoints": 893,
+        "screenPixelDensity": 1,
+        "utcOffsetMinutes": 480,
+        "applicationState": "ACTIVE",
+        "clientScreen": "WATCH",
+        "mainAppWebInfo": {
+          "graftUrl": "/watch?v=mVe1LOu5LfQ",
+          "pwaInstallabilityStatus": "PWA_INSTALLABILITY_STATUS_CAN_BE_INSTALLED",
+          "webDisplayMode": "WEB_DISPLAY_MODE_BROWSER",
+          "isWebNativeShareAvailable": true
+        }
+      },
+      "user": {
+        "lockedSafetyMode": false
+      },
+      "request": {
+        "useSsl": true,
+        "internalExperimentFlags": [],
+        "consistencyTokenJars": [
+          {
+            "encryptedTokenJarContents": "AIudn8r2YePrlPtvL0OSOaFmHiWmEkser5FMb6gKbu9sDvmREFPUBBoxo3aE8MlxG_HUeeD-O7FNbuwdJQE4oP59rh5NPc9XLGeCU-o8VdsQ_B9I35f3iY4VOgk",
+            "expirationSeconds": "600"
+          }
+        ]
+      },
+      "clickTracking": {
+        "clickTrackingParams": "CM8EEO_HDiITCP388NnRjJgDFVv5oAIdXMYJZ8oBBCaKTCM="
+      },
+      "adSignalsInfo": {
+        "params": [
+          {
+            "key": "dt",
+            "value": "1794836536356"
+          },
+          {
+            "key": "flash",
+            "value": "0"
+          },
+          {
+            "key": "frm",
+            "value": "0"
+          },
+          {
+            "key": "u_tz",
+            "value": "480"
+          },
+          {
+            "key": "u_his",
+            "value": "17"
+          },
+          {
+            "key": "u_h",
+            "value": "1080"
+          },
+          {
+            "key": "u_w",
+            "value": "1920"
+          },
+          {
+            "key": "u_ah",
+            "value": "1080"
+          },
+          {
+            "key": "u_aw",
+            "value": "1920"
+          },
+          {
+            "key": "u_cd",
+            "value": "24"
+          },
+          {
+            "key": "bc",
+            "value": "31"
+          },
+          {
+            "key": "bih",
+            "value": "893"
+          },
+          {
+            "key": "biw",
+            "value": "964"
+          },
+          {
+            "key": "brdim",
+            "value": "0,0,0,0,1920,0,1920,1080,979,893"
+          },
+          {
+            "key": "vis",
+            "value": "1"
+          },
+          {
+            "key": "wgl",
+            "value": "true"
+          },
+          {
+            "key": "ca_type",
+            "value": "image"
+          }
+        ]
+      }
+    },
+    "videoId": "mVe1LOu5LfQ",
+    "params": "CkkIDxAGQhc2UXI3YXBYN0M1YWl2X2dQdmZEeG1BRYoDKSAcKAMwBzgWShMI1ZPz2dGMmAMVFtEPCR09eBwTUgYIBTABWAFoAXB9YAHIAQHCA6cucqQucisKKSAcKAMwBzgWShMI1ZPz2dGMmAMVFtEPCR09eBwTUgYIATABWAFoAXBLsgPzLQrsLVLtEQrnEWh0dHBzOi8vd3d3Lmdvb2dsZS5jb20vcGFnZWFkL2FjbGs_c2E9TCZhaT1DTEVTVTZRcjdhcFg3QzVhaXZfZ1B2ZkR4bUFHT3lwYTNpZ0dxLTltanF4YXdrQjhRQVNBQVlPbUNnSURzRFlJQkYyTmhMWEIxWWkwMk1qRTVPREV4TnpRM01EUTVNemN4b0FHZm85U2pRYWdEQktvRXZnSlAwTGZrYjl1a3dQRkZqdGgyVVhSMHdDbkFYa2w0elhDTXEtbFZrMGVLTk1mcVRaZGFKbmxhbDRxSlU0MGoyR1BBZDUtaTBkbzk3WUROREU4d2UzREFkanZfd2dhWGlZeHJ4MGlUNEh4eGZNeGxKb3llMG1Hb2tfVUF4cXdnYXhFMDJKa19tMmZ0YTFlS0MzaFdhY2pueEIyVkxZMjh4T0kxQ3JYdm91b3hXeUxBRHhoeTRtUFItcElQSHBiSWlNNG9hSlJ2LUhfNlVmTlVWY2VXazFaOHNpbFRLQ1JQNTNUMkUzeWRvTnB2YlV4SEY0aVVVckhaN2RsUmx1QmttaTFMOER6M3l1RmxzU3I4akQ1OGRZNDZyMDEwemhfZmYwbUVyQ1hjbnowUGYzbUJhMWFtd3lMZndzOFFzRjdMNEZCcWliVmpoOHhEcVJhd1JRSnR1OXVMY084a3Y2ZHBrNm1Ob1V1cng5cXFQTWdoTTNwTWtJNWtvR19MVjR2WkRFMDlzTXBYTGN5cXN1b05haG9HMmJ4RjJBM005ekVsaUlPbzZQSnlySXFJQmFqSDhxOWFrZ1VOQ0JJdzlOdmszYzZsN2F1WkFaSUZDQWdUZU1qWW1KNGNvQVpWZ0FlZjI2U0RISWdIQVpBSEFxZ0g2dTZ4QXFnSHBjLXhBcWdINTUyeEFxZ0g2SjJ4QXFnSC1kT3hBcWdIeWRxeEFxZ0hxZUN4QXFnSHFOSWJxQWV4M0J1b0I3Q2JzUUtvQl8yeXNRS29COGpQc1FLb0I4blBzUUtvQl96VnNRS29CX3ZWc1FLb0I0eldzUUtvQjR2V3NRS29CNXJpc1FLb0I1dmlzUUtvQjU3cXNRS29CNV9xc1FLb0JfanJzUUtvQjd6cXNRS29CX3l2c1FLb0I5WE9HNmdIdnRteEFxZ0h2OW14QXFnSGxRaW9CNXpjRzZnSHQ2R3hBcWdIMWFteEFxZ0g1OXF4QXFnSDNyV3hBcWdINnJHeEFxZ0h2cmV4QXFnSG1iV3hBcWdIaGNHeEFxZ0g2Nld4QXFnSHlxbXhBcElJQzIxV1pURk1UM1UxVEdaUnFBZ0IwZ2c0Q0FBUUFoaGFNZ2lBZ0lDQWdJQ0FJRG9VajlDQWdJQ0FCSURBZ0lDQWdJQ0FBcXFBaUJoSTJhRFNOVkFVV0tqODh0blJqSmdEWUFHYUNSbG9kSFJ3Y3pvdkwzRnZaR1Z5TG1OdmJTOW5aVzVsY21Gc3NRbWdQbzN5Z09OMXVjZ0pGOGdKandISUNaQUJ5QW5DQWNnSmxRS1lDd0c2QzE0SUF4QUZHQllnQnlnQk1CeEFBVWdBV0gxZ0FHZ0FjQUdJQVFDWUFRR2lBU29LSHdnQUlBTW9BOXE0QkJVeUV6b1JDZzhvTUVqWGx0U3MyQTZZR1FHNElBSFFBUUdvQWdYQUFnTFlBUUdBQWdHSUFnYTZBd2QyYVhOcGJuSmkwQXNTb2d3dUlBRklBV0lQQ2cxamIyMHVjVzlrWlhJdVlYQndhaElLRUdOdmJTNXhiMlJsY2k1dGIySnBiR1Y0QVlnQkFkSU1BaEFCMmd3bENnb1FvSVdwalBlWnBaOEZFZ0lCQXhvTkdLakg4cTlhSU9qNXl1enJCVUFCU2dJUUg1b05BUktxRFFKSlJNZ05BZElOZEdoMGRIQnpPaTh2Y1c5a1pYSXVZMjl0TDJkbGJtVnlZV3dfZFhSdFgzTnZkWEpqWlQxd1lXbGtKblYwYlY5dFpXUnBkVzA5WjJkZmNHMWhlQ1oxZEcxZlkyRnRjR0ZwWjI0OVNVUW1aMkZrWDNOdmRYSmpaVDB5Sm1kaFpGOWpZVzF3WVdsbmJtbGtQVEkwTWpVNU5qTTBNRGc0c0E2R21fQ1JHYmdUX19fX19fX19fX19fQVlnVUFiQVVBOEFWZ1lDQVFOQVZBZGdWQVpnV0FlSVdBZ2dCZ0JjQmloY1lDQU1ZQVNBQktBRXdBVGdCUUFGSUFWQUJXQUZnQW1nQm9CY0JxUmNfQzV5cDJBcVJPN29YQmlnQU1BQTRBZEFZQWZBWUFjSVpBZ2dCJmFzZT0yJmdjbGlkPUNqMEtDUWlBOE9yWEJoREVBUklzQUVDdGx4NnJWQU03U253REt6ZkVsaDAtQzBBcVdkeVRaWkJvYjl1a0FOb18tVVBXUjJOdFFKejZtdkFhQXNTM0VBTHdfd2NCJm51bT0xJmNpZD1DQUVTcFFIZzltZlh5TzJYSkl2UXh4d1cyVGw0LXNQSVRwUmQ3eEhjalNpUm9VeUFsUkFhU1JfZVhTYkh3SWRrbDU4VmRUTE96bFJiNXNBWXVoa3VVQUJiT1hvY1R4b2cyLVRZMVA5aFB2NUlDSExscTZXcmhEaXAtVS0zVjRJcWRmc0pfQVhIb3lyd3ZRZ0p2cjkwakctUXpyMmV2a2lzRGVOTkh3UXVZSVNiTWxXVzczbHRTUWNOYXk2V0gwX2tKakl5dW1maVA2RFZXWUlDelozSnBOUGZnYWYtQVhVbmVVcyZhZF9jcG49JTVCQ1BOJTVEJnNpZz1BT0Q2NF8yTkQ1NTlkWnc2b3FaX1BVbEpMYkdFQllfNU13JmN0eXBlPTExMCZ2aWRlb19pZD1tVmUxTE91NUxmUSZsYWJlbD12aWRlb19saWdodF9lbmdhZ2VkX3ZpZXcmbXM9JTVCQ0xJQ0tfTVMlNUQmYWRfbXQ9JTVCQURfTVQlNUQmYWN2dz0lNUJWSUVXQUJJTElUWSU1RCZndj0lNUJHT09HTEVfVklFV0FCSUxJVFklNUQmeWVkPUNnZ0lBUkNJSnhpSUp3GIgnUvwNCvcNaHR0cHM6Ly93d3cueW91dHViZS5jb20veXRjcy9hZGludGVyYWN0aW9uP3hpPUFicV83NzV0WWF0bk5JWGFnR2FhWFBGMFhwcUlWdVg4VnI0OTh0Zmc2WTVmQ0lvOFJuVWNaSEJuQXBVbktQUzZ4dUJFR0RmbTkwTl8yUmkwV1NBZXBWTmNWTEZIX2RtVGVxMUt3RHcxcmphTTA5clFBVGE1QWRzTzRZMTJ1RW04SHNTbl9VMlNkcXhhYy1iX0VVaG4yTTRVZXJCVllmcVBTM0VYbm1TWVhuLXBYeWk4VXlaWUNZY0lrSlg5eUVJM0RGdXBDNkZoRkZXMmMwVjJXYUJzWmlLV3phOVQ3MXFwelNsNjRvRF9OR3hLZmNxNmc5WUp1YktDZkJGWF9TVURxYk1jUUZIdjhRd21fMmRjN0tBMHFOX1JMMTk0RTB2bFpqdThhQ2Vsd281eGtiNW01RHRsaXB0NmpMM0ZwQVpwcmxWZDFiZUFEeS1LdmVZNDdsMDhGdkc3aEtSMFZJQ0FxQ0dGMkliWmlYUkwyVTRWMXV1Zk9mc3lXcXhVUGlTS0JTMVNlZV9Ya2JHUFRrNzZFcVUyYk9PZDRCOXFYVVRZcldaZXlEV0J4QVg1QlFoUWRQOFU1ZUlpdmIxb3o4YmZISHctQnoxcURKc0JVdFBodjhpY1hKT2k3cDF2Ym40QzFFS3hjT1VCc2FXUWVSbUZCM3FQWWhGNEl6RkxDcUF3TmotcGE0NEZUbnlHYkZUVTJCQkpkZTM1N1lCbXJST2QwWGRhLWFNdXVKcUNSbEJfeURQNG9md2E3cVhKdm11YkxZY2g0S2pBSENpZVhqUWVsdU1PSV94eGU5ckotMXM5aWxtUmhpTkhkbzhCTG5sNnZMQmRoVHc5WFdHRGlMZGk2eFNUZTc0a21QZ0Yzc2xzbkdWTnhlSlpBRjI1NzhrWkFaRy1QLWY1NEJMYXR3cXc4bXlUNzRIODQwSGRpa1kzT0FkNnBXSTFnbU8xZ0VsNDM5ZnBOU1hGVmw5dnQyWG9ydHBUM0JzVGRnczJQa3k0cDhsV1dCUHRiTXZKb0M0VDkzaTFEZ2l4QUVJTWFsTGxEOGNma0Q4ZDdPRWZxMEVabXZ3WC0tY3VtNU1lWXhqYlUteWhDaWZ4V1JyZXdYdktBVGVBX1N0eDF1M2NJaVBFaS1ZOHBzLVJzNmxjbXFyOFlZVkRHOW5hV0NSQWVzbTN5Y2VYUW1WeHZkUXYzN1lkTi10ODJBMEdkQzNiSHAtdFo2b3kyN0RuR3RUUE1haXVSZThCTUloUzdGMW1odm5NOGZCZHNLeUlBVkFCRzAyUWdHSk16OW03V1RQZnlLOGEyMGdxVUlZeExQdWdObTRuNmFyOXk4c2hLYnQ4MzBxUFUzMnhEWnRWblJ3ZzBLTlN5RXJ4WHN0Vl9zeU03dDVUODlrdXM0ZXROSHo3SlpEQXZnN0xBelExRHBCUWsySU9aTGhkbGw2SkFXMkJlNWF3MHQzbXE0VnQ4RFRwY3V0SmJpRGNjUlFvdXdubWMtak44QzVUWE5Da25LY2I3ZGxRU3psY3NoNmdSb0FXVmVnWV9nRDhaTV9yaW8tZ28zNWRnTFBmTk5HYnlCa0ljbUtfODNFODY0ek40WDJnb2NsdnRBV3JIWmRiWWFsN0hqVXJmLUVUUEFPMkUydG1zWXdQUVhyNW9WWExmNmx6dFZMOXVhYzVPc2tReDdtelhZV3RDT3pTUmNWaUJYNEh2SWNDOXhFUDVVamRhVXNBS3RJMkVRdmJXd1FBTFJYZUpLRmlyODlzcmM0Y0tlMlBDdnNTeGNCTXBMWUVHczFuWTlQMnlVN0xTOGctN0x5emFHVWpkZVBKUnctMzNDQWVaRTFiWEhEMWpwM1lJbWl0QlR3LUk3U0VCRTB6UW5QQmhOc1d2QWZjbTNvRlJwRE5wQ1c2U1Z1NFR4SmlwQmlBa1FTelpBQUZXZTZEalYtVHNmUDBRYmZlVHNYQXk4aXRKU0pEaGxDdm9WWGozNTB6Y0ZuRE1JUDVNZlBVWVh0X1liNURRaVd4b0hpcnoya0JubFBUS3NSeFB3OTlhUmtudEZPRERBemNmVUpNcEF4VVJJanluVklYOG1VcmQ0UEJsLWVOdjdKcEJxV0J1UmNIcmtIa2w5YkRuTmNldGE2ayZ5dGNzX2lkPTEmbGFiZWw9ZGlzY292ZXJ5X2lubGluZV9tdXRlZF9wbGF5YmFja19zdGFydCZtcz0lNUJDTElDS19NUyU1RCZhZF9tdD0lNUJBRF9NVCU1RCZhY3Z3PSU1QlZJRVdBQklMSVRZJTVEJmd2PSU1QkdPT0dMRV9WSUVXQUJJTElUWSU1RBgAUvoNCvQNaHR0cHM6Ly93d3cueW91dHViZS5jb20veXRjcy9hZGludGVyYWN0aW9uP3hpPUFicV83NzV0WWF0bk5JWGFnR2FhWFBGMFhwcUlWdVg4VnI0OTh0Zmc2WTVmQ0lvOFJuVWNaSEJuQXBVbktQUzZ4dUJFR0RmbTkwTl8yUmkwV1NBZXBWTmNWTEZIX2RtVGVxMUt3RHcxcmphTTA5clFBVGE1QWRzTzRZMTJ1RW04SHNTbl9VMlNkcXhhYy1iX0VVaG4yTTRVZXJCVllmcVBTM0VYbm1TWVhuLXBYeWk4VXlaWUNZY0lrSlg5eUVJM0RGdXBDNkZoRkZXMmMwVjJXYUJzWmlLV3phOVQ3MXFwelNsNjRvRF9OR3hLZmNxNmc5WUp1YktDZkJGWF9TVURxYk1jUUZIdjhRd21fMmRjN0tBMHFOX1JMMTk0RTB2bFpqdThhQ2Vsd281eGtiNW01RHRsaXB0NmpMM0ZwQVpwcmxWZDFiZUFEeS1LdmVZNDdsMDhGdkc3aEtSMFZJQ0FxQ0dGMkliWmlYUkwyVTRWMXV1Zk9mc3lXcXhVUGlTS0JTMVNlZV9Ya2JHUFRrNzZFcVUyYk9PZDRCOXFYVVRZcldaZXlEV0J4QVg1QlFoUWRQOFU1ZUlpdmIxb3o4YmZISHctQnoxcURKc0JVdFBodjhpY1hKT2k3cDF2Ym40QzFFS3hjT1VCc2FXUWVSbUZCM3FQWWhGNEl6RkxDcUF3TmotcGE0NEZUbnlHYkZUVTJCQkpkZTM1N1lCbXJST2QwWGRhLWFNdXVKcUNSbEJfeURQNG9md2E3cVhKdm11YkxZY2g0S2pBSENpZVhqUWVsdU1PSV94eGU5ckotMXM5aWxtUmhpTkhkbzhCTG5sNnZMQmRoVHc5WFdHRGlMZGk2eFNUZTc0a21QZ0Yzc2xzbkdWTnhlSlpBRjI1NzhrWkFaRy1QLWY1NEJMYXR3cXc4bXlUNzRIODQwSGRpa1kzT0FkNnBXSTFnbU8xZ0VsNDM5ZnBOU1hGVmw5dnQyWG9ydHBUM0JzVGRnczJQa3k0cDhsV1dCUHRiTXZKb0M0VDkzaTFEZ2l4QUVJTWFsTGxEOGNma0Q4ZDdPRWZxMEVabXZ3WC0tY3VtNU1lWXhqYlUteWhDaWZ4V1JyZXdYdktBVGVBX1N0eDF1M2NJaVBFaS1ZOHBzLVJzNmxjbXFyOFlZVkRHOW5hV0NSQWVzbTN5Y2VYUW1WeHZkUXYzN1lkTi10ODJBMEdkQzNiSHAtdFo2b3kyN0RuR3RUUE1haXVSZThCTUloUzdGMW1odm5NOGZCZHNLeUlBVkFCRzAyUWdHSk16OW03V1RQZnlLOGEyMGdxVUlZeExQdWdObTRuNmFyOXk4c2hLYnQ4MzBxUFUzMnhEWnRWblJ3ZzBLTlN5RXJ4WHN0Vl9zeU03dDVUODlrdXM0ZXROSHo3SlpEQXZnN0xBelExRHBCUWsySU9aTGhkbGw2SkFXMkJlNWF3MHQzbXE0VnQ4RFRwY3V0SmJpRGNjUlFvdXdubWMtak44QzVUWE5Da25LY2I3ZGxRU3psY3NoNmdSb0FXVmVnWV9nRDhaTV9yaW8tZ28zNWRnTFBmTk5HYnlCa0ljbUtfODNFODY0ek40WDJnb2NsdnRBV3JIWmRiWWFsN0hqVXJmLUVUUEFPMkUydG1zWXdQUVhyNW9WWExmNmx6dFZMOXVhYzVPc2tReDdtelhZV3RDT3pTUmNWaUJYNEh2SWNDOXhFUDVVamRhVXNBS3RJMkVRdmJXd1FBTFJYZUpLRmlyODlzcmM0Y0tlMlBDdnNTeGNCTXBMWUVHczFuWTlQMnlVN0xTOGctN0x5emFHVWpkZVBKUnctMzNDQWVaRTFiWEhEMWpwM1lJbWl0QlR3LUk3U0VCRTB6UW5QQmhOc1d2QWZjbTNvRlJwRE5wQ1c2U1Z1NFR4SmlwQmlBa1FTelpBQUZXZTZEalYtVHNmUDBRYmZlVHNYQXk4aXRKU0pEaGxDdm9WWGozNTB6Y0ZuRE1JUDVNZlBVWVh0X1liNURRaVd4b0hpcnoya0JubFBUS3NSeFB3OTlhUmtudEZPRERBemNmVUpNcEF4VVJJanluVklYOG1VcmQ0UEJsLWVOdjdKcEJxV0J1UmNIcmtIa2w5YkRuTmNldGE2ayZ5dGNzX2lkPTEmbGFiZWw9ZGlzY292ZXJ5X2lubGluZV9tdXRlZF9wbGF5YmFja18ycyZtcz0lNUJDTElDS19NUyU1RCZhZF9tdD0lNUJBRF9NVCU1RCZhY3Z3PSU1QlZJRVdBQklMSVRZJTVEJmd2PSU1QkdPT0dMRV9WSUVXQUJJTElUWSU1RBjQDxgBIAG6BhUBAym6iwpNKO3RqPZYiXv1wifUgZ0%3D",
+    "playbackContext": {
+      "contentPlaybackContext": {
+        "currentUrl": "/watch?v=mVe1LOu5LfQ",
+        "vis": 5,
+        "splay": false,
+        "autoCaptionsDefaultOn": false,
+        "autonavState": "STATE_OFF",
+        "html5Preference": "HTML5_PREF_WANTS",
+        "signatureTimestamp": 20767,
+        "autoplay": true,
+        "autonav": true,
+        "referer": "https://www.youtube.com/results?search_query=rust+programmming",
+        "lactMilliseconds": "-1",
+        "watchAmbientModeContext": {
+          "hasShownAmbientMode": true,
+          "watchAmbientModeEnabled": true
+        }
+      },
+      "devicePlaybackCapabilities": {
+        "supportsVp9Encoding": true,
+        "supportXhr": true
+      }
+    },
+    "racyCheckOk": false,
+    "contentCheckOk": false,
+    "serviceIntegrityDimensions": {
+      "poToken": "MlNbViP0ULfmKltqPO0TfVyx9OgPKksYIMmHRT40kMIxvhHDrrB6paFAlvRjA48BJJnCqSpexxfY4uh46sn5n2uMvYl63rhiGKOM5SDFqiQfHmMSnQ=="
+    }
+  }
+}

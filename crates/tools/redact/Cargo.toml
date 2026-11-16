@@ -1,0 +1,9 @@
+[package]
+name = "redact"
+version = "0.1.0"
+edition = "2021"
+description = "Phase 0 redaction: strip personal data from a saved InnerTube response."
+license = "TBD"
+
+[dependencies]
+serde_json.workspace = true

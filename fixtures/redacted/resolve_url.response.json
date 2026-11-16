@@ -1,0 +1,88 @@
+{
+  "responseContext": {
+    "visitorData": "REDACTED",
+    "serviceTrackingParams": [
+      {
+        "service": "CSI",
+        "params": [
+          {
+            "key": "c",
+            "value": "WEB"
+          },
+          {
+            "key": "cver",
+            "value": "2.20230327.07.00"
+          },
+          {
+            "key": "yt_li",
+            "value": "0"
+          },
+          {
+            "key": "ResolveUrl_rid",
+            "value": "0x5ab1df403a2452ad"
+          }
+        ]
+      },
+      {
+        "service": "GFEEDBACK",
+        "params": [
+          {
+            "key": "logged_in",
+            "value": "0"
+          },
+          {
+            "key": "visitor_data",
+            "value": "CgtQR3FqY2dxNk5udyjxlezXBjIKCgJJRBIEGgAgTA%3D%3D"
+          }
+        ]
+      },
+      {
+        "service": "GUIDED_HELP",
+        "params": [
+          {
+            "key": "logged_in",
+            "value": "0"
+          }
+        ]
+      },
+      {
+        "service": "ECATCHER",
+        "params": [
+          {
+            "key": "client.version",
+            "value": "2.20261002"
+          },
+          {
+            "key": "client.name",
+            "value": "WEB"
+          }
+        ]
+      }
+    ],
+    "mainAppWebResponseContext": {
+      "loggedOut": true
+    },
+    "responseId": "IhMI85Ls3dGMmAMVDj-3AB1fuAl3",
+    "webResponseContextExtensionData": {
+      "hasDecorated": true
+    }
+  },
+  "endpoint": {
+    "clickTrackingParams": "IhMI85Ls3dGMmAMVDj-3AB1fuAl3MghleHRlcm5hbMoBBCHjIbU=",
+    "commandMetadata": {
+      "webCommandMetadata": {
+        "url": "/youtubei/v1/navigation/resolve_url",
+        "webPageType": "WEB_PAGE_TYPE_CHANNEL",
+        "rootVe": 3611,
+        "apiUrl": "/youtubei/v1/browse"
+      },
+      "resolveUrlCommandMetadata": {
+        "isVanityUrl": true
+      }
+    },
+    "browseEndpoint": {
+      "browseId": "UC5--wS0Ljbin1TjWQX6eafA",
+      "params": "EgC4AQCSAwDyBgQKAjIA"
+    }
+  }
+}

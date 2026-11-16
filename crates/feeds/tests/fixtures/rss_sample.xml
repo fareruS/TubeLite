@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/" xmlns="http://www.w3.org/2005/Atom">
+  <title>YouTube video feed</title>
+  <entry>
+    <id>yt:video:AAAA1111BBBB</id>
+    <yt:videoId>AAAA1111BBBB</yt:videoId>
+    <yt:channelId>UCchan1</yt:channelId>
+    <title>Older video &amp; friends</title>
+    <link rel="alternate" href="https://www.youtube.com/watch?v=AAAA1111BBBB"/>
+    <author><name>Chan One</name><uri>https://www.youtube.com/channel/UCchan1</uri></author>
+    <published>2026-11-01T10:00:00+00:00</published>
+    <updated>2026-11-01T10:00:00+00:00</updated>
+    <media:group>
+      <media:title>Older video &amp; friends</media:title>
+      <media:thumbnail url="https://i.ytimg.com/vi/AAAA1111BBBB/hqdefault.jpg" width="480" height="360"/>
+    </media:group>
+  </entry>
+  <entry>
+    <id>yt:video:BBBB2222CCCC</id>
+    <yt:videoId>BBBB2222CCCC</yt:videoId>
+    <yt:channelId>UCchan1</yt:channelId>
+    <title>Newer video</title>
+    <link rel="alternate" href="https://www.youtube.com/watch?v=BBBB2222CCCC"/>
+    <author><name>Chan One</name><uri>https://www.youtube.com/channel/UCchan1</uri></author>
+    <published>2026-11-15T10:00:00+00:00</published>
+    <updated>2026-11-15T10:00:00+00:00</updated>
+    <media:group>
+      <media:title>Newer video</media:title>
+      <media:thumbnail url="https://i.ytimg.com/vi/BBBB2222CCCC/hqdefault.jpg" width="480" height="360"/>
+    </media:group>
+  </entry>
+</feed>
