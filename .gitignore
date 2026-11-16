@@ -1,0 +1,17 @@
+/target/
+ui/node_modules/
+ui/build/
+ui/.svelte-kit/
+src-tauri/target/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+libmpv-2.dll
+mpv.lib
+.DS_Store
+
+# Phase 0 captures — raw responses and credentials are never committed.
+fixtures/raw/
+**/cookies.txt
+**/redact-strings.txt
+__pycache__/
