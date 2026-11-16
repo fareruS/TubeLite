@@ -1,77 +1,103 @@
-# TubeLite (working name)
+# TubeLite
 
-A lightweight native desktop YouTube video client — Tauri 2 + Rust + SvelteKit + libmpv.
-No Electron, no bundled Chromium. The UI never talks to YouTube; all network,
-parsing and caching live in Rust, and the UI receives small, already-shaped
-structs over IPC.
+A lightweight native desktop YouTube video client: Tauri 2 + Rust + SvelteKit + libmpv. No Electron, no embedded browser for the main UI. The UI never talks to YouTube — all network, parsing, and caching live in Rust, and the UI receives small, already-shaped structs over IPC.
 
-> This app is unofficial and not affiliated with YouTube or Google.
+TubeLite is an unofficial client, not affiliated with YouTube or Google. It talks to YouTube's internal InnerTube API using your own browser cookies; that may conflict with YouTube's Terms of Service and can break without notice.
 
-## Status (2026-11-08)
+## What works
 
-- **Done offline:** workspace + `yt-model`, `yt-source` (InnerTube transport,
-  fallback chain, search/video/channel/playlist parsers, chapter markers,
-  yt-dlp sidecar source), `player` (state machine, queue, libmpv backend,
-  PlayerService), `store` (SQLite: settings, subscriptions, history,
-  resume), Tauri app (IPC guard, source chaining, player IPC behind the
-  `mpv` feature), SvelteKit UI (Home with windowed search + cache,
-  Watch with real controls + chapters + history/resume, Search, Channel
-  with Subscribe, Playlist, Subscriptions, Library, Settings).
-- `cargo test --all` **54 green** offline; `cargo test -p player
-  --features mpv` adds 3 scripted playback tests against real libmpv
-  (headless). No live YouTube calls in the default test run.
-- **Not yet built / verified:** Phase 0 Windows video spike (no Windows
-  machine here), live InnerTube verification (this VM's egress hangs on
-  youtubei POST — `clients.json` versions are placeholders), cipher /
-  PoToken transforms, official Data API source (needs a user-supplied
-  key), OS integration (tray, media keys), installer/updater (Phase 7).
-- **No Windows measurements exist yet.** All budget numbers in `docs/PLAN.md`
-  are targets, not claims. See `docs/NOTES.md` for what was actually measured
-  (Rust version, dependency pins, test counts).
-- **Open owner decisions:** project license (MIT / Apache-2.0 / GPL-3.0)
-  and app name (Litube vs TubeLite, the working name).
+- Signed-in feeds: home, subscriptions, history, search, channel pages, watch-next — parsed from real captured InnerTube responses (`crates/feeds`, `crates/innertube`).
+- Sign-in: Google sign-in popup, or import a Netscape `cookies.txt` (Settings → Account). Cookies live in the OS keyring, with an encrypted-file fallback where no keyring exists.
+- Playback (`crates/player`): yt-dlp resolves the best video/audio pair, libmpv plays it, and a failed stream re-resolves once and resumes where you left off.
+- Workspace tests: 168 passing, clippy clean (`cargo test --workspace --exclude tubelite`).
 
-## Quick start (Linux dev, offline tests)
+## What is not proven yet
 
-```sh
-# Rust (if not installed)
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
-export PATH="$HOME/.cargo/bin:$PATH"
+- Real playback has never run end to end (no yt-dlp or libmpv on the dev VM). The mpv adapter compiles; it has never played a video.
+- The login popup has never been opened. It needs a real Windows machine — WebView2 never paints under Wine.
+- The keyring path has never been round-tripped. Only the encrypted-file fallback has been exercised.
+- Player stage 2 (loopback proxy), write actions (like, subscribe, Watch Later, playlists), and the native `app/` crate are not built yet — see `docs/missing-captures.md`.
 
-cargo test --all          # offline, no network, no libmpv needed
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings   # Phase 1 goal; see NOTES if warnings remain
+## Build
 
-cd ui && npm install && npm run build   # SvelteKit static build
-npm run check                            # svelte-check
-```
+### Prerequisites
 
-Full Tauri build (needs libmpv + WebView2/WebKitGTK — Windows/Linux):
+| | Windows (primary target) | Linux (dev) |
+| --- | --- | --- |
+| Rust | stable 1.80+ via [rustup](https://rustup.rs) (MSVC toolchain — install the Visual Studio C++ build tools) | stable 1.80+ via rustup |
+| Node.js | 20+ | 20+ |
+| Tauri CLI | `cargo install tauri-cli --version "=2.12.4"` | same |
+| WebView2 | preinstalled on Windows 11; the installer adds it if missing | — |
+| System libs | — | `sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf libmpv-dev` |
+| Playback | `yt-dlp` on PATH (e.g. `winget install yt-dlp.yt-dlp`) and a Windows libmpv build with `libmpv-2.dll` next to the exe | `libmpv-dev` (see above) |
+
+Versions used while developing this: Rust 1.99.1, Node v24.22.1, Tauri 2.12.5, libmpv2 7.0.1.
+
+### Steps
 
 ```sh
-cd ui && npm run build
-cargo tauri build   # from src-tauri, once the Tauri CLI is installed
+git clone https://github.com/fareruS/TubeLite.git
+cd TubeLite
+
+# 1. Frontend dependencies (once)
+cd ui && npm install && cd ..
+
+# 2. Dev run (hot reload; the UI dev server runs on :1420)
+cd src-tauri && cargo tauri dev
+
+# 3. Release build — the NSIS installer lands in
+#    src-tauri/target/release/bundle/nsis/TubeLite_0.1.0_x64-setup.exe
+cargo tauri build -- --features mpv
 ```
 
-See `docs/PLAN.md` for phases, risks and open questions, and
-`docs/BUILD-PLATFORMS.md` (to be completed when a Windows/Linux build is
-actually run — steps not run are not documented as verified).
+The `--features mpv` flag matters: playback is off by default so the workspace builds and tests on machines without libmpv. Without it, the app builds fine but every playback command returns an error.
 
-## License
+`cargo tauri build` runs the UI build first (`beforeBuildCommand`, with `cwd: ../ui`), so you don't need to build the UI separately — but `npm install` in `ui/` must have run at least once.
 
-**Not chosen yet — the owner must pick one.** See `docs/PLAN.md` §6.1.
-No LICENSE file is shipped until then. This repo reimplements architectural
-ideas from open-source projects (Limusic, NewPipe Extractor, yt-dlp, etc.)
-and copies no code from them. `THIRD_PARTY.md` lists dependency licenses.
+### Checks
+
+```sh
+cargo fmt --all
+cargo clippy --workspace --all-targets
+cargo test --workspace --exclude tubelite
+cargo test -p player --features mpv   # needs libmpv installed
+cd ui && npm run check                # svelte-check
+```
+
+`cargo check -p tubelite --tests` is the bar for the Tauri crate: its test binaries need GTK/WebKit dev libraries to link on Linux.
+
+## First run
+
+1. Open Settings → Account and sign in (Google popup), or import a Netscape `cookies.txt`.
+2. Without an account the feeds load signed-out (empty home, "Try searching to get started").
+3. Playback needs `yt-dlp` on PATH and `libmpv-2.dll` beside the exe (Windows).
+
+## Layout
+
+```
+crates/
+  innertube/   InnerTube client: session, SAPISIDHASH auth, retry + heal-on-401
+  feeds/       Feed parsers (home, subs, history, search, channel, watch-next)
+  accounts/    Cookie import, keyring storage, login flow, session manager
+  player/      yt-dlp resolver, libmpv player, recovery, broadcast events
+  yt-model/    Shared models
+  yt-source/   Legacy InnerTube source (feeds are replacing it)
+  store/       SQLite store
+  tools/       replay + redact (fixture tooling)
+src-tauri/     Tauri app (commands, login popup, settings)
+ui/            SvelteKit frontend
+fixtures/      Redacted captured InnerTube responses (ground truth for parsers)
+docs/          PLAN.md, renderer-map.md, missing-captures.md, KNOWN-ISSUES.md
+```
+
+Parsers are built from the fixtures in `fixtures/` and must never invent an endpoint, browse ID, or JSON path. If a shape is missing, the code says what to capture (`docs/missing-captures.md`) instead of guessing.
 
 ## Threat model (short)
 
-- The app talks to YouTube's internal API in Phase 3; that surface is
-  fragile and can break without notice. Breakage is isolated behind
-  `StreamSource` + `clients.json` + fixtures, so a fix is a config update
-  or a small patch, not a rewrite.
-- Cookies/tokens/API keys (if the user supplies any) go in the OS credential
-  store, never in SQLite or logs. Logs are redacted (see `src-tauri/src/logging.rs`).
-- The yt-dlp sidecar (Phase 6) is treated as untrusted: fixed argument
-  allow-list, no shell interpolation, timeouts, output size limits, strict JSON.
-- Loopback servers (if built) bind to 127.0.0.1 only, with a random per-launch token.
+- The InnerTube surface is fragile and can break without notice. Breakage is isolated behind `crates/innertube` + `crates/feeds` + fixtures, so a fix is a config update or a small patch, not a rewrite.
+- Cookies go in the OS credential store (or an encrypted file fallback), never in SQLite or logs. Cookie values are redacted everywhere they could be printed.
+- The yt-dlp sidecar is treated as untrusted: fixed argument allow-list, no shell interpolation, 60 s timeout, stderr redacted before it reaches any error.
+
+## License
+
+TBD — no license has been chosen yet. Do not redistribute until one is picked (see `docs/PLAN.md` §6.1).
