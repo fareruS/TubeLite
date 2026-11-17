@@ -34,7 +34,7 @@ pub use mpv_backend::MpvPlayer;
 pub use mpv_control::MpvControlImpl;
 pub use playback::{PlaybackState, UrlFailureAction};
 pub use player::{MpvControl, MpvEvent, Player, PlayerError};
-pub use queue::{Queue, QueueItem, RepeatMode};
+pub use queue::{Queue, QueueItem, QueueSnapshot, RepeatMode};
 pub use resolver::{
     redact_secrets, ResolveError, Resolved, Resolver, YtDlpResolver, YT_DLP_UPDATE_COMMAND,
 };

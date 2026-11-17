@@ -2,9 +2,10 @@
 //! Shuffle, repeat, reorder, resume positions and URL-expiry handling
 //! live here so they are testable without a player.
 
+use serde::{Deserialize, Serialize};
 use yt_model::VideoId;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum RepeatMode {
     #[default]
     Off,
@@ -12,7 +13,7 @@ pub enum RepeatMode {
     One,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueueItem {
     pub video_id: VideoId,
     pub title: String,
@@ -20,7 +21,16 @@ pub struct QueueItem {
     pub resume_secs: Option<f64>,
 }
 
-#[derive(Debug, Default)]
+/// The queue as the UI sees it: items in order, the current index,
+/// repeat mode.
+#[derive(Debug, Clone, Serialize)]
+pub struct QueueSnapshot {
+    pub items: Vec<QueueItem>,
+    pub index: Option<usize>,
+    pub repeat: RepeatMode,
+}
+
+#[derive(Debug, Default, Clone)]
 pub struct Queue {
     pub items: Vec<QueueItem>,
     pub index: Option<usize>,
@@ -44,6 +54,60 @@ impl Queue {
 
     pub fn current(&self) -> Option<&QueueItem> {
         self.index.and_then(|i| self.items.get(i))
+    }
+
+    /// Replace the contents; the current pointer lands on
+    /// `current_id` when it is in the list, else the first item (or
+    /// `None` when the list is empty).
+    pub fn replace(&mut self, items: Vec<QueueItem>, current_id: Option<&str>) {
+        self.pre_shuffle = None;
+        self.shuffled = false;
+        self.items = items;
+        self.index = match current_id {
+            Some(id) => self
+                .items
+                .iter()
+                .position(|i| i.video_id.0 == id)
+                .or(if self.items.is_empty() { None } else { Some(0) }),
+            None => {
+                if self.items.is_empty() {
+                    None
+                } else {
+                    Some(0)
+                }
+            }
+        };
+    }
+
+    /// Point the current pointer at `video_id` when it is in the
+    /// queue; leave it alone otherwise (e.g. a video played outside
+    /// the queue).
+    pub fn set_current_to(&mut self, video_id: &str) {
+        if let Some(pos) = self.items.iter().position(|i| i.video_id.0 == video_id) {
+            self.index = Some(pos);
+        }
+    }
+
+    /// The item [`Queue::advance`] would return, without moving the
+    /// pointer. `None` when the queue is exhausted (repeat Off) or
+    /// empty.
+    pub fn peek_next(&self) -> Option<&QueueItem> {
+        // `advance` needs `&mut self`; a clone keeps the peek pure.
+        // The queue is small (an Up Next list), so the copy is cheap.
+        let mut clone = self.clone();
+        // `advance` returns a borrow of the clone — re-lookup the id
+        // in `self` instead of returning it.
+        let next_id = clone.advance().map(|item| item.video_id.0.clone())?;
+        self.items.iter().find(|i| i.video_id.0 == next_id)
+    }
+
+    /// Snapshot for the UI: items in order, current index, repeat mode.
+    pub fn snapshot(&self) -> QueueSnapshot {
+        QueueSnapshot {
+            items: self.items.clone(),
+            index: self.index,
+            repeat: self.repeat,
+        }
     }
 
     /// Next item respecting repeat mode. Returns None only when the queue
@@ -165,5 +229,41 @@ mod tests {
         queue.unshuffle();
         assert_eq!(queue.items[0].video_id.0, "v0");
         assert_eq!(queue.current().unwrap().video_id.0, "v0");
+    }
+
+    #[test]
+    fn replace_points_at_current_id_or_first_item() {
+        let mut queue = q(0);
+        queue.replace(q(3).items, Some("v2"));
+        assert_eq!(queue.current().unwrap().video_id.0, "v2");
+        queue.replace(q(3).items, Some("missing"));
+        assert_eq!(queue.current().unwrap().video_id.0, "v0");
+        queue.replace(q(3).items, None);
+        assert_eq!(queue.current().unwrap().video_id.0, "v0");
+        queue.replace(Vec::new(), None);
+        assert!(queue.current().is_none());
+    }
+
+    #[test]
+    fn peek_next_does_not_move_the_pointer_and_respects_repeat() {
+        let mut queue = q(3);
+        assert_eq!(queue.peek_next().unwrap().video_id.0, "v1");
+        assert_eq!(queue.current().unwrap().video_id.0, "v0");
+        queue.advance();
+        queue.advance();
+        assert!(queue.peek_next().is_none());
+        queue.repeat = RepeatMode::All;
+        assert_eq!(queue.peek_next().unwrap().video_id.0, "v0");
+        queue.repeat = RepeatMode::One;
+        assert_eq!(queue.peek_next().unwrap().video_id.0, "v2");
+    }
+
+    #[test]
+    fn set_current_to_moves_only_when_present() {
+        let mut queue = q(3);
+        queue.set_current_to("v2");
+        assert_eq!(queue.current().unwrap().video_id.0, "v2");
+        queue.set_current_to("missing");
+        assert_eq!(queue.current().unwrap().video_id.0, "v2");
     }
 }

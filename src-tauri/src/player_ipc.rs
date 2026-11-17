@@ -25,11 +25,21 @@
 //! `player_pause` / `player_toggle`, `player_seek`,
 //! `player_set_speed`, `player_set_volume`, `player_set_muted`,
 //! `player_set_audio_only`, `player_status` (reads the new Player's
-//! state, which its event loop keeps fresh), `player_next` (no queue
-//! is carried over by the new Player, so it returns `Ok(None)`).
+//! state, which its event loop keeps fresh), `player_next` (advance
+//! the queue and start the next item; `Ok(None)` when exhausted),
+//! `player_set_queue` / `player_get_queue` (the playback queue —
+//! Up Next list / playlist — as items + current index + repeat
+//! mode), `player_set_repeat` (Off / All / One).
 //! Speed / volume / mute / audio-only are UI-side state applied to
 //! mpv with `set_option`; mpv properties persist across `loadfile`,
 //! so a value set before any playback still applies to the next item.
+//!
+//! Autoplay lives in `player::Player`: on a natural end its event
+//! loop advances the queue and starts the next item, prefetching the
+//! next item's streams while the current one plays. The Watch page
+//! follows the advance by polling `player_status` —
+//! `PlayerStatus.current_video_id` changes under it — and navigating
+//! to the new id; the queue itself is set from the watch_next feed.
 
 #[cfg(feature = "mpv")]
 use std::path::PathBuf;
@@ -40,7 +50,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use innertube::SharedSession;
 #[cfg(feature = "mpv")]
 use player::PlayerState;
-use serde::Serialize;
+#[cfg(feature = "mpv")]
+use player::QueueItem;
+use player::{QueueSnapshot, RepeatMode};
+use serde::{Deserialize, Serialize};
 use tauri::{State, WebviewWindow};
 #[cfg(feature = "mpv")]
 use yt_model::VideoId;
@@ -66,6 +79,10 @@ pub struct PlayerStatus {
     pub muted: bool,
     pub audio_only: bool,
     pub quality_height: Option<u32>,
+    /// Id of the video actually loaded, if any. Changes under the
+    /// Watch page when autoplay advances — that is how the UI
+    /// notices the advance and navigates to the new video.
+    pub current_video_id: Option<String>,
 }
 
 /// Convert a `Cookie` header (`NAME=value; NAME=value`) into a
@@ -214,6 +231,7 @@ impl ReadyPlayer {
         let state = self.player.state().await;
         let position = self.player.position().await;
         let duration = self.player.duration().await;
+        let current_video_id = self.player.current_video_id().await;
         let ui = self
             .ui
             .lock()
@@ -227,7 +245,31 @@ impl ReadyPlayer {
             muted: ui.muted,
             audio_only: ui.audio_only,
             quality_height: ui.quality_height,
+            current_video_id,
         })
+    }
+}
+
+/// One queue item as the UI sends it (`player_set_queue`): the id
+/// and title from the watch_next feed (or a playlist). Field names
+/// are snake_case, matching the feed types the UI already uses.
+#[derive(Debug, Deserialize)]
+pub struct QueueItemInput {
+    pub video_id: String,
+    pub title: String,
+}
+
+/// Repeat mode names the UI sends (`player_set_repeat`): `off`,
+/// `all`, `one` (case-insensitive).
+#[cfg_attr(not(feature = "mpv"), allow(dead_code))]
+fn parse_repeat(s: &str) -> Result<RepeatMode, String> {
+    match s.to_ascii_lowercase().as_str() {
+        "off" => Ok(RepeatMode::Off),
+        "all" => Ok(RepeatMode::All),
+        "one" => Ok(RepeatMode::One),
+        other => Err(format!(
+            "unknown repeat mode {other:?} (want off, all, or one)"
+        )),
     }
 }
 
@@ -479,11 +521,68 @@ impl PlayerSlot {
         }
     }
 
+    /// Skip to the next queue item and start it. Returns the id
+    /// played, or `None` when the queue is exhausted (repeat Off) or
+    /// empty. A resolve/load failure for the next item is an error.
     pub async fn next_id(&self) -> Result<Option<String>, String> {
         match self {
             Self::Disabled => Err(Self::DISABLED_MSG.into()),
             #[cfg(feature = "mpv")]
-            Self::Ready(_) => Ok(None),
+            Self::Ready(ready) => ready.player.next().await.map_err(|e| e.to_string()),
+        }
+    }
+
+    /// Replace the playback queue with `items` (Up Next list /
+    /// playlist). `current_id` is the video already playing, when it
+    /// is in the list. On a build without the player this is an
+    /// error, like the other playback commands.
+    pub async fn set_queue(
+        &self,
+        items: Vec<QueueItemInput>,
+        current_id: Option<String>,
+    ) -> Result<(), String> {
+        #[cfg(not(feature = "mpv"))]
+        let _ = (items, current_id);
+        match self {
+            Self::Disabled => Err(Self::DISABLED_MSG.into()),
+            #[cfg(feature = "mpv")]
+            Self::Ready(ready) => {
+                let items: Vec<QueueItem> = items
+                    .into_iter()
+                    .map(|input| QueueItem {
+                        video_id: VideoId(input.video_id),
+                        title: input.title,
+                        resume_secs: None,
+                    })
+                    .collect();
+                ready.player.set_queue(items, current_id.as_deref()).await;
+                Ok(())
+            }
+        }
+    }
+
+    /// The queue as the UI sees it: items in order, current index,
+    /// repeat mode.
+    pub async fn queue(&self) -> Result<QueueSnapshot, String> {
+        match self {
+            Self::Disabled => Err(Self::DISABLED_MSG.into()),
+            #[cfg(feature = "mpv")]
+            Self::Ready(ready) => Ok(ready.player.queue_snapshot().await),
+        }
+    }
+
+    /// Repeat mode the queue advance (autoplay and `player_next`)
+    /// follows: `off`, `all`, or `one`.
+    pub async fn set_repeat(&self, repeat: &str) -> Result<(), String> {
+        #[cfg(not(feature = "mpv"))]
+        let _ = repeat;
+        match self {
+            Self::Disabled => Err(Self::DISABLED_MSG.into()),
+            #[cfg(feature = "mpv")]
+            Self::Ready(ready) => {
+                ready.player.set_repeat(parse_repeat(repeat)?).await;
+                Ok(())
+            }
         }
     }
 
@@ -765,6 +864,36 @@ pub async fn player_next(
     state.player.next_id().await
 }
 
+#[tauri::command]
+pub async fn player_set_queue(
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+    items: Vec<QueueItemInput>,
+    current_id: Option<String>,
+) -> Result<(), String> {
+    check_window(&window)?;
+    state.player.set_queue(items, current_id).await
+}
+
+#[tauri::command]
+pub async fn player_get_queue(
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<QueueSnapshot, String> {
+    check_window(&window)?;
+    state.player.queue().await
+}
+
+#[tauri::command]
+pub async fn player_set_repeat(
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+    repeat: String,
+) -> Result<(), String> {
+    check_window(&window)?;
+    state.player.set_repeat(&repeat).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -780,10 +909,20 @@ mod tests {
             muted: false,
             audio_only: false,
             quality_height: Some(720),
+            current_video_id: Some("dQw4w9WgXcQ".into()),
         };
         let json = serde_json::to_string(&s).unwrap();
         assert!(json.contains("\"position_secs\":12.5"));
         assert!(json.contains("\"quality_height\":720"));
+        assert!(json.contains("\"current_video_id\":\"dQw4w9WgXcQ\""));
+    }
+
+    #[test]
+    fn parse_repeat_accepts_off_all_one_case_insensitively() {
+        assert_eq!(parse_repeat("off").unwrap(), RepeatMode::Off);
+        assert_eq!(parse_repeat("All").unwrap(), RepeatMode::All);
+        assert_eq!(parse_repeat("ONE").unwrap(), RepeatMode::One);
+        assert!(parse_repeat("shuffle").is_err());
     }
 
     #[test]
@@ -840,6 +979,18 @@ mod tests {
         let err = slot.status().await.unwrap_err();
         assert!(err.contains("mpv"), "disabled error should name mpv: {err}");
         assert!(slot.next_id().await.is_err());
+        assert!(slot
+            .set_queue(
+                vec![QueueItemInput {
+                    video_id: "dQw4w9WgXcQ".into(),
+                    title: "Fake".into(),
+                }],
+                None,
+            )
+            .await
+            .is_err());
+        assert!(slot.queue().await.is_err());
+        assert!(slot.set_repeat("all").await.is_err());
     }
 
     #[cfg(feature = "mpv")]

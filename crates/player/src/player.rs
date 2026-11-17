@@ -1,6 +1,13 @@
 //! Stage 1 player: resolve a video id through a [`Resolver`], load
 //! the resulting DASH pair into mpv, and recover from URL failures.
 //!
+//! The player also owns the playback [`Queue`]: on a natural end the
+//! event loop advances it and starts the next item (autoplay), and
+//! the next item's streams are prefetched while the current one
+//! plays, so the advance loads from cache instead of re-resolving.
+//! The queue is set from the UI (Up Next list / playlist) and the
+//! pointer follows whatever video is actually playing.
+//!
 //! The mpv side is behind the [`MpvControl`] trait so the recovery
 //! logic is testable with a fake mpv (see `tests/player_recovery.rs`).
 //! The real adapter lives in [`mpv_control`](crate::mpv_control)
@@ -27,6 +34,7 @@ use thiserror::Error;
 use tokio::sync::{broadcast, Mutex};
 
 use crate::events::{PlayerEvent, PlayerState};
+use crate::queue::{Queue, QueueItem, QueueSnapshot, RepeatMode};
 use crate::resolver::{ResolveError, Resolved, Resolver};
 
 /// mpv events, translated from libmpv2's [`Event`](libmpv2::events::Event)
@@ -110,6 +118,25 @@ struct Inner {
     state: Mutex<Playback>,
     events: broadcast::Sender<PlayerEvent>,
     stop: AtomicBool,
+    /// Playback queue (Up Next / playlist). The player advances it
+    /// on natural end; the UI sets it from the watch_next feed.
+    queue: Mutex<Queue>,
+    /// The next item's resolved streams, when prefetch already ran.
+    /// Keyed by (video id, max height); a stale entry is ignored by
+    /// `play` and overwritten by the next prefetch.
+    prefetch: Mutex<Option<Prefetched>>,
+    /// (video id, max height) of a prefetch currently in flight, so a
+    /// second trigger for the same item does not spawn a second
+    /// resolve.
+    prefetch_in_flight: Mutex<Option<(String, u32)>>,
+}
+
+/// One prefetched resolve: the next item's streams, ready to load
+/// without a fresh yt-dlp run.
+struct Prefetched {
+    video_id: String,
+    max_height: u32,
+    resolved: Resolved,
 }
 
 /// Broadcast channel capacity for player events (bounded by
@@ -151,6 +178,9 @@ impl Player {
                 }),
                 events,
                 stop: AtomicBool::new(false),
+                queue: Mutex::new(Queue::default()),
+                prefetch: Mutex::new(None),
+                prefetch_in_flight: Mutex::new(None),
             }),
         })
     }
@@ -177,6 +207,157 @@ impl Player {
     /// the file opens; the event loop keeps it fresh.)
     pub async fn duration(&self) -> Option<f64> {
         self.inner.state.lock().await.duration
+    }
+
+    /// Id of the video currently loaded, if any. The UI polls this to
+    /// notice an autoplay advance (the route id changes under it).
+    pub async fn current_video_id(&self) -> Option<String> {
+        self.inner
+            .state
+            .lock()
+            .await
+            .current
+            .as_ref()
+            .map(|c| c.video_id.clone())
+    }
+
+    /// Replace the playback queue (Up Next list / playlist).
+    /// `current_id` is the video already playing, when it is in the
+    /// list. Replacing the queue also (re)triggers the prefetch of
+    /// the next item when something is playing.
+    pub async fn set_queue(&self, items: Vec<QueueItem>, current_id: Option<&str>) {
+        self.inner.queue.lock().await.replace(items, current_id);
+        self.trigger_prefetch().await;
+    }
+
+    /// The queue as the UI sees it: items in order, current index,
+    /// repeat mode.
+    pub async fn queue_snapshot(&self) -> QueueSnapshot {
+        self.inner.queue.lock().await.snapshot()
+    }
+
+    /// Repeat mode the queue advance (autoplay and `next`) follows.
+    pub async fn set_repeat(&self, repeat: RepeatMode) {
+        self.inner.queue.lock().await.repeat = repeat;
+    }
+
+    /// The id [`Player::next`] would play, without advancing.
+    pub async fn peek_next_id(&self) -> Option<String> {
+        self.inner
+            .queue
+            .lock()
+            .await
+            .peek_next()
+            .map(|item| item.video_id.0.clone())
+    }
+
+    /// Skip to the next queue item (repeat mode applies) and start
+    /// it. Returns the id played, or `None` when the queue is
+    /// exhausted (repeat Off) or empty. A resolve/load failure for
+    /// the next item is an error, like `play`.
+    pub async fn next(&self) -> Result<Option<String>, PlayerError> {
+        let Some(next_id) = self.advance_queue().await else {
+            return Ok(None);
+        };
+        self.play(&next_id).await?;
+        Ok(Some(next_id))
+    }
+
+    /// Advance the queue pointer one step (repeat mode applies) and
+    /// return the new current id.
+    async fn advance_queue(&self) -> Option<String> {
+        self.inner
+            .queue
+            .lock()
+            .await
+            .advance()
+            .map(|item| item.video_id.0.clone())
+    }
+
+    /// Take the prefetched resolve for (`video_id`, `max_height`),
+    /// when one is cached; anything else stays cached for later (it
+    /// is only ever one item ahead, and is overwritten by the next
+    /// prefetch).
+    async fn take_prefetch(&self, video_id: &str, max_height: u32) -> Option<Resolved> {
+        let mut prefetch = self.inner.prefetch.lock().await;
+        match &*prefetch {
+            Some(p) if p.video_id == video_id && p.max_height == max_height => {
+                prefetch.take().map(|p| p.resolved)
+            }
+            _ => None,
+        }
+    }
+
+    /// Resolve the next queue item's streams in the background while
+    /// the current one plays, so the advance does not stall on a
+    /// fresh resolve. No-op when nothing is playing, the queue has
+    /// no next item, or the item is already cached / being resolved.
+    /// A failed prefetch is silent: the advance re-resolves then.
+    async fn trigger_prefetch(&self) {
+        // Nothing to prefetch for when no video is loaded yet; `play`
+        // triggers it again once the first item loads.
+        let playing = self.inner.state.lock().await.current.is_some();
+        if !playing {
+            return;
+        }
+        let (next_id, max_height) = {
+            let queue = self.inner.queue.lock().await;
+            let Some(next) = queue.peek_next() else {
+                return;
+            };
+            (
+                next.video_id.0.clone(),
+                self.inner.state.lock().await.max_height,
+            )
+        };
+        {
+            if self
+                .inner
+                .prefetch
+                .lock()
+                .await
+                .as_ref()
+                .is_some_and(|p| p.video_id == next_id && p.max_height == max_height)
+            {
+                return;
+            }
+            let mut in_flight = self.inner.prefetch_in_flight.lock().await;
+            if *in_flight == Some((next_id.clone(), max_height)) {
+                return;
+            }
+            *in_flight = Some((next_id.clone(), max_height));
+        }
+        let this = self.clone();
+        tokio::spawn(async move {
+            let result = this.inner.resolver.resolve(&next_id, max_height).await;
+            {
+                let mut in_flight = this.inner.prefetch_in_flight.lock().await;
+                if *in_flight == Some((next_id.clone(), max_height)) {
+                    *in_flight = None;
+                }
+            }
+            let Ok(resolved) = result else {
+                return;
+            };
+            // Store only if this item is still the next one — the
+            // queue may have advanced while the resolve was in
+            // flight, and a stale entry must not overwrite the
+            // prefetch for the newer next item.
+            let still_next = this
+                .inner
+                .queue
+                .lock()
+                .await
+                .peek_next()
+                .is_some_and(|item| item.video_id.0 == next_id);
+            if still_next {
+                *this.inner.prefetch.lock().await = Some(Prefetched {
+                    video_id: next_id,
+                    max_height,
+                    resolved,
+                });
+            }
+        });
     }
 
     /// Cap used by the next [`Player::play`]. For a video already
@@ -216,19 +397,29 @@ impl Player {
         let _ = self.inner.events.send(event);
     }
 
-    /// Resolve and play a video from the start.
+    /// Resolve and play a video from the start. A prefetched resolve
+    /// for this id (see [`Player::trigger_prefetch`]) is used when
+    /// one is cached, so an autoplay advance does not re-resolve.
+    /// After the load, the queue pointer follows the video actually
+    /// playing (a manual play of an Up Next item included) and the
+    /// next item's streams are prefetched.
     pub async fn play(&self, video_id: &str) -> Result<(), PlayerError> {
         let max_height = self.inner.state.lock().await.max_height;
         self.set_state(PlayerState::Loading).await;
-        let resolved = match self.inner.resolver.resolve(video_id, max_height).await {
-            Ok(resolved) => resolved,
-            Err(e) => {
-                self.fail(format!("resolve failed: {e}")).await;
-                return Err(PlayerError::Resolve(e));
-            }
+        let resolved = match self.take_prefetch(video_id, max_height).await {
+            Some(resolved) => resolved,
+            None => match self.inner.resolver.resolve(video_id, max_height).await {
+                Ok(resolved) => resolved,
+                Err(e) => {
+                    self.fail(format!("resolve failed: {e}")).await;
+                    return Err(PlayerError::Resolve(e));
+                }
+            },
         };
         self.load_resolved(video_id, resolved, 0.0, false, false)
             .await?;
+        self.inner.queue.lock().await.set_current_to(video_id);
+        self.trigger_prefetch().await;
         Ok(())
     }
 
@@ -287,6 +478,9 @@ impl Player {
         self.load_resolved(&video_id, resolved, position, was_paused, false)
             .await?;
         self.emit(PlayerEvent::QualityChanged(max_height));
+        // The prefetched next item (if any) was resolved at the old
+        // height; resolve it again at the new one while this plays.
+        self.trigger_prefetch().await;
         Ok(())
     }
 
@@ -375,9 +569,14 @@ impl Player {
                     self.handle_url_failure().await;
                 }
                 Some(MpvEvent::EndFileEof) => {
-                    self.inner.state.lock().await.state = PlayerState::Ended;
-                    self.emit(PlayerEvent::Ended);
-                    self.emit(PlayerEvent::StateChanged(PlayerState::Ended));
+                    // Natural end: advance the queue and start the
+                    // next item (repeat mode applies). Only when the
+                    // queue is exhausted does the player report Ended.
+                    if !self.autoplay_next().await {
+                        self.inner.state.lock().await.state = PlayerState::Ended;
+                        self.emit(PlayerEvent::Ended);
+                        self.emit(PlayerEvent::StateChanged(PlayerState::Ended));
+                    }
                 }
                 Some(MpvEvent::EndFileStopped)
                 | Some(MpvEvent::Seek)
@@ -388,6 +587,19 @@ impl Player {
             self.poll_position().await;
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
+    }
+
+    /// Advance the queue and start the next item. Returns false when
+    /// the queue is exhausted (repeat Off) — the caller then reports
+    /// Ended. A failed advance-play surfaces through the normal error
+    /// path (state Error); the return value only says "there was a
+    /// next item".
+    async fn autoplay_next(&self) -> bool {
+        let Some(next_id) = self.advance_queue().await else {
+            return false;
+        };
+        let _ = self.play(&next_id).await;
+        true
     }
 
     /// Poll mpv's clock into the state and emit position/duration

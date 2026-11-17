@@ -11,6 +11,8 @@ export interface PlayerStatus {
 	muted: boolean;
 	audio_only: boolean;
 	quality_height: number | null;
+	/** Id of the video actually loaded; changes when autoplay advances. */
+	current_video_id: string | null;
 }
 
 export const playVideo = (id: string, height?: number) =>

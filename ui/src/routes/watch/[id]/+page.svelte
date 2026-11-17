@@ -1,7 +1,16 @@
 <script lang="ts">
 	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
+	import { untrack } from 'svelte';
 	import { invoke } from '@tauri-apps/api/core';
-	import { getWatchNext, hideVideoWindow, reportVideoRect } from '$lib/api';
+	import {
+		getWatchNext,
+		hideVideoWindow,
+		reportVideoRect,
+		setPlayerQueue,
+		getPlayerQueue,
+		setPlayerRepeat
+	} from '$lib/api';
 	import { loadSettings } from '$lib/settings';
 	import VideoList from '$lib/VideoList.svelte';
 	import type { FeedItem } from '$lib/types';
@@ -14,6 +23,7 @@
 		playerSetMuted,
 		playerSetAudioOnly,
 		playerStatus,
+		playerNext,
 		type PlayerStatus
 	} from '$lib/player';
 
@@ -43,6 +53,8 @@
 	let upNext = $state<FeedItem[]>([]);
 	let upNextError = $state('');
 	let upNextLoading = $state(false);
+	let repeat = $state('Off');
+	let nextTitle = $state('');
 
 	// The chapter containing the current position, for highlighting.
 	let currentChapter = $derived.by(() => {
@@ -90,6 +102,19 @@
 		getWatchNext(id)
 			.then((p) => {
 				upNext = p.items;
+				// Hand the list to the player as its queue (current
+				// video first), so it can autoplay the next item and
+				// prefetch its streams. Failures are silent — the
+				// list still renders, just without autoplay.
+				setPlayerQueue(
+					[
+						{ video_id: id, title: title || id },
+						...p.items.map((v) => ({ video_id: v.video_id, title: v.title }))
+					],
+					id
+				)
+					.then(() => refreshQueue())
+					.catch(() => {});
 			})
 			.catch((e) => {
 				upNextError = String(e);
@@ -112,10 +137,20 @@
 		};
 	});
 
-	// Start playback on mount, at the user's saved quality. On a build
-	// without the mpv feature the command fails and the error is shown —
-	// never a silent black rectangle.
+	// Start playback on mount (and on navigation to another video),
+	// at the user's saved quality. On a build without the mpv
+	// feature the command fails and the error is shown — never a
+	// silent black rectangle.
+	//
+	// `videoId` is read synchronously so the effect re-runs when the
+	// route id changes (an `id` read inside the promise chain would
+	// not be tracked, and clicking an Up Next item would leave the
+	// old video playing). When autoplay already started this video
+	// in the backend — the status poll navigated here after the
+	// advance — `playVideo` is skipped so the video is not resolved
+	// and restarted from the top.
 	$effect(() => {
+		const videoId = id;
 		let cancelled = false;
 		// Report the rect first: the native surface must exist
 		// before the first loadfile, or mpv opens its own window.
@@ -124,16 +159,17 @@
 			.then(() => loadSettings())
 			.then((s) => {
 				quality = s.quality;
+				if (untrack(() => status)?.current_video_id === videoId) return null;
 				const height = s.quality === 'auto' ? 0 : s.quality === 'audio' ? undefined : Number(s.quality);
-				return playVideo(id, height);
+				return playVideo(videoId, height);
 			})
 			.then(async (st) => {
-				if (cancelled) return;
+				if (cancelled || !st) return;
 				status = st;
 				// Resume where the user left off: only when meaningfully
 				// mid-video (>5 s in, >10 s from the end).
 				try {
-					const saved = await invoke<number | null>('get_resume_position', { videoId: id });
+					const saved = await invoke<number | null>('get_resume_position', { videoId });
 					if (saved != null && saved > 5) {
 						const dur = st.duration_secs;
 						if (dur == null || saved < dur - 10) {
@@ -153,13 +189,23 @@
 		};
 	});
 
-	// 4 Hz position tick (the plan's tick rate).
+	// 4 Hz position tick (the plan's tick rate). The poll also
+	// follows autoplay: when the backend advanced to the next queue
+	// item, `current_video_id` differs from the route id, so the
+	// page navigates to the new video (title, chapters and Up Next
+	// reload for it; the play effect skips re-starting it because
+	// the backend is already playing it).
 	$effect(() => {
 		const t = setInterval(() => {
 			if (seeking) return;
 			playerStatus()
 				.then((st) => {
 					status = st;
+					const current = st.current_video_id;
+					if (current && current !== id) {
+						refreshQueue();
+						goto(`/watch/${current}`);
+					}
 				})
 				.catch(() => {
 					/* player not running — the error line already says so */
@@ -203,6 +249,24 @@
 			window.removeEventListener('tubelite:volume', onAction);
 		};
 	});
+
+	// Refresh the "next up" label (and the repeat control) from the
+	// backend queue. Called when the video changes and after the
+	// queue is (re)set; failures are silent (no-mpv build).
+	async function refreshQueue() {
+		try {
+			const q = await getPlayerQueue();
+			repeat = q.repeat;
+			const idx = q.index ?? -1;
+			const next =
+				q.repeat === 'One' || idx < 0
+					? undefined
+					: (q.items[idx + 1] ?? (q.repeat === 'All' ? q.items[0] : undefined));
+			nextTitle = next && next.video_id !== id ? next.title : '';
+		} catch {
+			/* queue unavailable */
+		}
+	}
 
 	function seekBy(delta: number) {
 		if (!status) return;
@@ -300,6 +364,7 @@
 		<button onclick={() => playerToggle().then((st) => (status = st))}>
 			{status.paused ? '▶ Play' : '⏸ Pause'}
 		</button>
+		<button onclick={() => playerNext().catch((e) => (error = String(e)))}>⏭ Next</button>
 		<input
 			type="range"
 			class="seek"
@@ -344,6 +409,19 @@
 			<option value="720">720p</option>
 			<option value="1080">1080p</option>
 			<option value="audio">Audio only</option>
+		</select>
+		<select
+			value={repeat}
+			onchange={(e) => {
+				const r = (e.currentTarget as HTMLSelectElement).value;
+				repeat = r;
+				setPlayerRepeat(r).catch(() => {});
+			}}
+			aria-label="Repeat"
+		>
+			<option value="Off">Repeat off</option>
+			<option value="All">Repeat all</option>
+			<option value="One">Repeat one</option>
 		</select>
 		<label>
 			<input
@@ -421,7 +499,7 @@
 {/if}
 
 <section aria-label="Up Next">
-	<h2>Up Next</h2>
+	<h2>Up Next{#if nextTitle} — next: {nextTitle}{/if}</h2>
 	{#if upNextLoading}<p>Loading…</p>{/if}
 	{#if upNextError}<p role="alert">couldn't load feed: {upNextError}</p>{/if}
 	{#if !upNextLoading && !upNextError && upNext.length === 0}<p>No up-next videos.</p>{/if}

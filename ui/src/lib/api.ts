@@ -19,3 +19,21 @@ export const accountStatus = () => invoke<AccountStatus>('account_status');
 export const importCookies = (path: string) => invoke<AccountStatus>('import_cookies', { path });
 export const secretBackend = () => invoke<string>('secret_backend');
 export const getHomeFeed = () => invoke<FeedPage>('get_home_feed');
+
+// Playback queue (Up Next list / playlist) as the player owns it.
+export interface QueueItemDto {
+	video_id: string;
+	title: string;
+	resume_secs: number | null;
+}
+export interface QueueSnapshot {
+	items: QueueItemDto[];
+	index: number | null;
+	repeat: 'Off' | 'All' | 'One';
+}
+export const setPlayerQueue = (
+	items: { video_id: string; title: string }[],
+	currentId?: string | null
+) => invoke('player_set_queue', { items, currentId: currentId ?? null });
+export const getPlayerQueue = () => invoke<QueueSnapshot>('player_get_queue');
+export const setPlayerRepeat = (repeat: string) => invoke('player_set_repeat', { repeat });

@@ -707,7 +707,10 @@ pub fn run() {
             player_ipc::player_load_captions,
             player_ipc::player_clear_captions,
             player_ipc::player_status,
-            player_ipc::player_next
+            player_ipc::player_next,
+            player_ipc::player_set_queue,
+            player_ipc::player_get_queue,
+            player_ipc::player_set_repeat
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
