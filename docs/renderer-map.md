@@ -189,6 +189,29 @@ Tabs (plain-string `title` on `tabRenderer`; unselected tabs have
 `content: null`). Observed in **both** channel fixtures, with identical
 `params` across channels:
 
+### Channel header — `header.pageHeaderRenderer`
+
+The channel's own metadata (name, handle, avatar, subscriber text)
+lives in the response header, not in the video list. Parsed by
+`parse_channel_header` in `crates/feeds/src/channel.rs` into
+`FeedPage.channel`:
+
+| field | path |
+|---|---|
+| name | `header.pageHeaderRenderer.pageTitle` (`M2`); fallback `…content.pageHeaderViewModel.title.dynamicTextViewModel.text.content`, then `metadata.channelMetadataRenderer.title` |
+| handle | `…content.pageHeaderViewModel.metadata.contentMetadataViewModel.metadataRows[].metadataParts[].text.content` — the part starting with `@` (`@MnetM2`, `@bigboxSWE`) |
+| subscriber text | same `metadataParts` — the part containing `subscriber` (`10.7M subscribers`, `281K subscribers`); the sibling part is the video count (`33K videos`, `121 videos`) |
+| avatar | `…content.pageHeaderViewModel.image.decoratedAvatarViewModel.avatar.avatarViewModel.image.sources[]` (`{url, width, height}`; largest first, s160 in both fixtures); fallback `metadata.channelMetadataRenderer.avatar.thumbnails[]` (s900) |
+| description | `metadata.channelMetadataRenderer.description` (full text; the header's `descriptionPreviewViewModel` is truncated) |
+| channel id | `metadata.channelMetadataRenderer.rssUrl` (`…/feeds/videos.xml?channel_id=<UC…>`), also `externalId` |
+
+Subscriber counts in both fixtures are abbreviated, so
+`subscriber_count` stays `None` (never a guessed number) and the raw
+text is kept as `subscriber_count_text` for display. The header is
+parsed by `parse_feed` whenever a response carries it, so a Videos-tab
+response that carries the same header also yields it — but no fixture
+loads the Videos tab, so that is unobserved.
+
 | tab | `browseEndpoint.params` |
 |---|---|
 | Home (selected in capture) | `EghmZWF0dXJlZPIGBAoCMgA%3D` |

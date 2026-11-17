@@ -84,4 +84,33 @@ pub struct FeedPage {
     pub chips: Vec<Chip>,
     /// Parse statistics (see [`ParseStats`]).
     pub stats: ParseStats,
+    /// The channel page header, when the response is a channel page
+    /// carrying `header.pageHeaderRenderer` (see [`ChannelHeader`]).
+    /// Absent on every other feed.
+    pub channel: Option<ChannelHeader>,
+}
+
+/// The channel page header, from `header.pageHeaderRenderer` in a
+/// `/browse` channel response (parsed by
+/// [`crate::parse_channel_header`]). This is the real channel
+/// metadata — name, avatar, subscriber text — not the name of the
+/// first video in the list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChannelHeader {
+    /// Channel name, e.g. `M2`.
+    pub title: String,
+    /// Handle, e.g. `@MnetM2`, when the header carries one.
+    pub handle: Option<String>,
+    /// Full description from `metadata.channelMetadataRenderer`.
+    pub description: String,
+    /// Avatar images, largest first.
+    pub thumbnails: Vec<Thumb>,
+    /// Subscriber text exactly as YouTube shows it, e.g.
+    /// `10.7M subscribers`. Abbreviated counts are never converted
+    /// to a number, so this is the display form.
+    pub subscriber_count_text: Option<String>,
+    /// Exact subscriber count, only when the text is unabbreviated
+    /// (e.g. `1,234 subscribers`). Abbreviated text
+    /// (`10.7M subscribers`) yields `None`.
+    pub subscriber_count: Option<u64>,
 }

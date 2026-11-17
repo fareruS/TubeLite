@@ -204,7 +204,12 @@ impl Feeds {
     /// A channel's Videos tab. The request shape is grounded (the
     /// `params` value comes from the channel response fixture), but
     /// the response shape is unverified — no fixture loads the Videos
-    /// tab. Items are parsed with the generic dispatcher.
+    /// tab. Items are parsed with the generic dispatcher. When the
+    /// response carries a channel header
+    /// (`header.pageHeaderRenderer`), it is parsed into
+    /// `page.channel` (see `channel.rs`); the Videos-tab response
+    /// may or may not carry one, so callers must fall back when it
+    /// is absent.
     pub async fn channel_videos(&self, channel_id: &str) -> Result<FeedPage, Error> {
         let context = self.context().await?;
         self.browse(json!({

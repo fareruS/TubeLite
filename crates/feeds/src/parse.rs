@@ -106,6 +106,9 @@ pub fn parse_feed(body: &Value) -> FeedPage {
         chips: chips_of(body),
         items,
         stats,
+        // Only channel responses carry a page header; every other
+        // feed gets None here.
+        channel: crate::channel::parse_channel_header(body),
     }
 }
 

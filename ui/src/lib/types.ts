@@ -6,4 +6,5 @@ export interface FeedThumb { url: string; width?: number | null; height?: number
 export interface FeedBadge { label: string; style?: string | null }
 export interface FeedItem { video_id: string; title: string; channel_name: string; channel_id: string; thumbnails: FeedThumb[]; duration_text: string; published_text: string; view_count_text: string; badges: FeedBadge[] }
 export interface FeedChip { text: string; token?: string | null; selected: boolean }
-export interface FeedPage { items: FeedItem[]; continuation?: string | null; chips: FeedChip[]; stats: { attempted: number; skipped: number } }
+export interface ChannelHeader { title: string; handle?: string | null; description: string; thumbnails: FeedThumb[]; subscriber_count_text?: string | null; subscriber_count?: number | null }
+export interface FeedPage { items: FeedItem[]; continuation?: string | null; chips: FeedChip[]; stats: { attempted: number; skipped: number }; channel?: ChannelHeader | null }

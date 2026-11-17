@@ -137,6 +137,58 @@ fn channel_home_tab_parses_its_shelf_videos() {
 }
 
 #[test]
+fn channel_header_comes_from_page_header_not_first_item() {
+    let page = parse_feed(&fixture("channel.response.json"));
+    let header = page.channel.as_ref().expect("channel header");
+    assert_eq!(header.title, "M2");
+    assert_eq!(header.handle.as_deref(), Some("@MnetM2"));
+    // Largest header avatar source (s160); the
+    // channelMetadataRenderer avatar (s900) is only the fallback.
+    assert_eq!(
+        header.thumbnails.first().map(|t| t.url.as_str()),
+        Some("https://yt3.googleusercontent.com/-CMwNSrdUuj-abbE1fB1ml62omQHViexCOp4IrDmans8QgqKC153dCgPk9wtBLJfXEP1gNGa=s160-c-k-c0x00ffffff-no-rj")
+    );
+    assert_eq!(header.thumbnails.first().and_then(|t| t.width), Some(160));
+    // "10.7M subscribers" is abbreviated: kept as text, never
+    // converted to a guessed number.
+    assert_eq!(
+        header.subscriber_count_text.as_deref(),
+        Some("10.7M subscribers")
+    );
+    assert_eq!(header.subscriber_count, None);
+    assert!(header.description.starts_with("Mnet Digital Studio, M2"));
+    // The videos list is unchanged by the header parse.
+    assert_eq!(page.items.len(), 102);
+}
+
+#[test]
+fn channel2_header_parses_too() {
+    let page = parse_feed(&fixture("channel2.response.json"));
+    let header = page.channel.as_ref().expect("channel header");
+    assert_eq!(header.title, "bigboxSWE");
+    assert_eq!(header.handle.as_deref(), Some("@bigboxSWE"));
+    assert_eq!(
+        header.thumbnails.first().map(|t| t.url.as_str()),
+        Some("https://yt3.googleusercontent.com/z1YVihkpWgDP7h8bCNZb5qJ0N3Eu26VZmwyjbdpaNmkGfgPW29JIMQdpaP2PEY3vjhARWmG2yA=s160-c-k-c0x00ffffff-no-rj")
+    );
+    assert_eq!(
+        header.subscriber_count_text.as_deref(),
+        Some("281K subscribers")
+    );
+    assert_eq!(header.subscriber_count, None);
+    assert!(header.description.starts_with("bigboxSWE"));
+    assert_eq!(page.items.len(), 13);
+}
+
+#[test]
+fn non_channel_feeds_have_no_channel_header() {
+    let home = parse_feed(&fixture("home.response.json"));
+    assert!(home.channel.is_none());
+    let search = parse_feed(&fixture("search.response.json"));
+    assert!(search.channel.is_none());
+}
+
+#[test]
 fn channel2_shelf_item_without_a_channel_part() {
     let page = parse_feed(&fixture("channel2.response.json"));
     assert_eq!(page.items.len(), 13);

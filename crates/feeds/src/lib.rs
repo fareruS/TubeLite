@@ -21,6 +21,7 @@
 //!   [`Error::MissingFixture`]) and the RSS sample (written for the
 //!   tests from the public feed format).
 
+mod channel;
 mod continuation;
 mod error;
 mod extract;
@@ -30,11 +31,12 @@ mod model;
 mod parse;
 mod rss;
 
+pub use channel::parse_channel_header;
 pub use continuation::continuation_token;
 pub use error::Error;
 pub use extract::{extract_item, extract_lockup, extract_video_renderer, has_item_renderer};
 pub use feeds::Feeds;
 pub use find::find_all;
-pub use model::{Badge, Chip, FeedItem, FeedPage, ParseStats, Thumb};
+pub use model::{Badge, ChannelHeader, Chip, FeedItem, FeedPage, ParseStats, Thumb};
 pub use parse::{chips_of, collect_items, parse_feed, parse_watch_next};
 pub use rss::{fetch_rss, merge_by_published, parse_rss};
