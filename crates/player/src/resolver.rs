@@ -29,6 +29,22 @@ use thiserror::Error;
 use tokio::process::Command;
 use tokio::sync::OnceCell;
 
+/// Build a yt-dlp command. On Windows, yt-dlp.exe is a console app:
+/// without CREATE_NO_WINDOW every spawn flashes a console window
+/// next to the app while a video resolves.
+fn sidecar_command(binary: &Path) -> Command {
+    // `mut` is only needed on Windows (creation_flags); on other
+    // platforms the cfg block below compiles away.
+    #[allow(unused_mut)]
+    let mut cmd = std::process::Command::new(binary);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    Command::from(cmd)
+}
+
 /// A resolved video: direct stream URLs plus the metadata playback
 /// needs. `audio_url` is `None` when the chosen video format already
 /// carries audio (a combined format), or when no audio-only format
@@ -449,7 +465,7 @@ impl YtDlpResolver {
     async fn ensure_version(&self) -> Result<(), ResolveError> {
         self.version_check
             .get_or_init(|| async {
-                let output = Command::new(&self.yt_dlp).arg("--version").output().await;
+                let output = sidecar_command(&self.yt_dlp).arg("--version").output().await;
                 match output {
                     Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                         Err(ResolveError::YtDlpMissing {
@@ -507,7 +523,7 @@ impl YtDlpResolver {
             None => None,
         };
         let url = format!("https://www.youtube.com/watch?v={video_id}");
-        let mut cmd = Command::new(&self.yt_dlp);
+        let mut cmd = sidecar_command(&self.yt_dlp);
         cmd.kill_on_drop(true)
             .arg("--no-playlist")
             .arg("--dump-single-json")

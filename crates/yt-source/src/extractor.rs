@@ -42,6 +42,22 @@ pub const MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
 /// Default sidecar timeout.
 pub const DEFAULT_TIMEOUT_SECS: u64 = 30;
 
+/// Build a sidecar command. On Windows, yt-dlp.exe is a console
+/// app: without CREATE_NO_WINDOW every spawn flashes a console
+/// window next to the app while a video resolves.
+fn sidecar_command(binary: &Path) -> tokio::process::Command {
+    // `mut` is only needed on Windows (creation_flags); on other
+    // platforms the cfg block below compiles away.
+    #[allow(unused_mut)]
+    let mut cmd = std::process::Command::new(binary);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    tokio::process::Command::from(cmd)
+}
+
 /// A YouTube video id is exactly 11 chars of [A-Za-z0-9_-].
 pub fn validate_video_id(id: &str) -> Result<()> {
     let ok = id.len() == 11
@@ -163,7 +179,7 @@ impl ExtractorSource {
 
     /// Run the sidecar with `--version` (Settings "update" / diagnostics).
     pub async fn version(&self) -> Result<String> {
-        let out = tokio::process::Command::new(&self.binary)
+        let out = sidecar_command(&self.binary)
             .arg("--version")
             .output()
             .await
@@ -208,7 +224,7 @@ impl StreamSource for ExtractorSource {
 
     async fn playable(&self, id: &VideoId, pref: QualityPref) -> Result<PlayableMedia> {
         let args = build_args(id)?;
-        let run = tokio::process::Command::new(&self.binary)
+        let run = sidecar_command(&self.binary)
             .args(&args)
             .output();
         let out = tokio::time::timeout(Duration::from_secs(self.timeout_secs), run)
