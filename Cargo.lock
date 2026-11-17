@@ -4904,6 +4904,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "windows",
  "yt-model",
  "yt-source",
 ]

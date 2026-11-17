@@ -9,15 +9,15 @@
 //! to `Disabled` with a warning log; startup never fails because the
 //! player could not start.
 //!
-//! v0.1.0 video: the stage-1 mpv options
+//! v0.1.0 video: mpv renders into a native Win32 child window over
+//! the `#video-hole` (see `video_window`): the stage-1 mpv options
 //! (`MpvConfig::stage1_options`, applied by `Player::new`) set NO `vo`
-//! key, so mpv opens its own window for video instead of rendering
-//! into the webview — the embedded video surface is unbuilt, and the
-//! `vo=libmpv` the old path used has no render context yet. See
-//! `MpvControlImpl::new`, which overrides the `vo=libmpv` that
-//! `MpvPlayer::new` applies back to `gpu` for this reason. Embedded
-//! video (render context under the webview) is the follow-up; when it
-//! lands, delete that override and this paragraph.
+//! key, and `MpvControlImpl::new` overrides the `vo=libmpv` that
+//! `MpvPlayer::new` applies back to `gpu` — `libmpv` would need a
+//! render context that does not exist. The `wid` for the child window
+//! is set in `PlayerSlot::play_video` from the rect the Watch page
+//! reports; when there is no surface (or the set fails) mpv falls
+//! back to its own window and the video still plays.
 //!
 //! Commands (names and the `PlayerStatus` shape are the UI contract —
 //! `ui/src/lib/player.ts` invokes them and must not change):
@@ -491,20 +491,36 @@ impl PlayerSlot {
     /// resolves at 144p (the video track is fetched but never
     /// decoded — `vid=no` — so the smallest height wastes the least
     /// bandwidth); otherwise `max_height` is the resolve cap and the
-    /// reported quality. Resolve errors (including a missing yt-dlp,
-    /// which names the install/update command) surface as strings.
+    /// reported quality. `wid` is the native video surface's handle
+    /// (Win32 HWND), or `None` when there is no surface yet — mpv
+    /// then opens its own window. A failed `wid` set is only logged,
+    /// never fatal: the video still plays standalone. Resolve errors
+    /// (including a missing yt-dlp, which names the install/update
+    /// command) surface as strings.
     pub async fn play_video(
         &self,
         id: &str,
         audio_only: bool,
         max_height: u32,
+        wid: Option<i64>,
     ) -> Result<PlayerStatus, String> {
         #[cfg(not(feature = "mpv"))]
-        let _ = (id, audio_only, max_height);
+        let _ = (id, audio_only, max_height, wid);
         match self {
             Self::Disabled => Err(Self::DISABLED_MSG.into()),
             #[cfg(feature = "mpv")]
             Self::Ready(ready) => {
+                // Embed mpv into the app window when a native
+                // surface exists. Must happen before the first
+                // loadfile; a failure here only warns — mpv falls
+                // back to its own window and the video still plays.
+                if let Some(wid) = wid {
+                    if let Err(e) = ready.player.set_window(wid).await {
+                        tracing::warn!(
+                            "could not embed mpv into the app window ({e}); using its own window"
+                        );
+                    }
+                }
                 ready.player.set_max_height(max_height).await;
                 ready
                     .player
@@ -558,7 +574,26 @@ pub async fn play_video(
         Some(0) => (false, 720),
         Some(h) => (false, h),
     };
-    state.player.play_video(&id, audio_only, max_height).await
+    if audio_only {
+        // No picture: hide the native surface so the hole shows the
+        // webview's own background instead of an empty window.
+        state.video_window.hide();
+        return state
+            .player
+            .play_video(&id, audio_only, max_height, None)
+            .await;
+    }
+    let wid = state.video_window.hwnd();
+    if wid.is_some() {
+        // The surface may have been hidden by an audio-only stretch.
+        state.video_window.show();
+    } else {
+        tracing::warn!("no video surface yet (no rect reported); mpv will open its own window");
+    }
+    state
+        .player
+        .play_video(&id, audio_only, max_height, wid)
+        .await
 }
 
 #[tauri::command]

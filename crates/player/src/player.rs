@@ -56,6 +56,11 @@ pub trait MpvControl: Send {
     fn set_pause(&mut self, pause: bool) -> Result<(), PlayerError>;
     fn seek(&mut self, secs: f64) -> Result<(), PlayerError>;
     fn set_option(&mut self, key: &str, value: &str) -> Result<(), PlayerError>;
+    /// Embed mpv's video into the native window `wid` (a Win32 HWND
+    /// on Windows). Must be set before the first `load_pair`; mpv
+    /// ignores it once playback has started. `0` means "let mpv open
+    /// its own window" — the standalone fallback.
+    fn set_window(&mut self, wid: i64) -> Result<(), PlayerError>;
     /// Load an external subtitle file and select it.
     fn load_subtitles(&mut self, path: &str) -> Result<(), PlayerError>;
     /// Turn subtitles off.
@@ -187,6 +192,14 @@ impl Player {
     /// in effect for the next item.
     pub async fn set_option(&self, key: &str, value: &str) -> Result<(), PlayerError> {
         self.inner.control.lock().await.set_option(key, value)
+    }
+
+    /// Embed mpv's video into the native window `wid` (see
+    /// [`MpvControl::set_window`]). Applied immediately; like other
+    /// options it persists across `loadfile`, so a value set before
+    /// any playback is still in effect for the next item.
+    pub async fn set_window(&self, wid: i64) -> Result<(), PlayerError> {
+        self.inner.control.lock().await.set_window(wid)
     }
 
     /// Load an external subtitle file into mpv and select it.

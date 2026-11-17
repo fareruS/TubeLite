@@ -85,6 +85,13 @@ impl MpvPlayer {
         self.mpv.set_property(key, value)
     }
 
+    /// Embed video into the native window `wid` (a Win32 HWND on
+    /// Windows). Must be set before the first `loadfile`; `0` clears
+    /// the embedding and lets mpv open its own window.
+    pub fn set_window(&self, wid: i64) -> Result<(), libmpv2::Error> {
+        self.mpv.set_property("wid", wid)
+    }
+
     /// Current duration in seconds, if mpv reports one.
     pub fn duration(&self) -> Option<f64> {
         self.mpv.get_property::<f64>("duration").ok()

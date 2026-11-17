@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { invoke } from '@tauri-apps/api/core';
-	import { getWatchNext, reportVideoRect } from '$lib/api';
+	import { getWatchNext, hideVideoWindow, reportVideoRect } from '$lib/api';
 	import { loadSettings } from '$lib/settings';
 	import VideoList from '$lib/VideoList.svelte';
 	import type { FeedItem } from '$lib/types';
@@ -99,7 +99,8 @@
 			});
 	});
 
-	// Save the resume position when leaving the page.
+	// Save the resume position when leaving the page, and hide the
+	// native video surface so it does not linger over the next page.
 	$effect(() => {
 		return () => {
 			if (status && status.position_secs > 5) {
@@ -107,6 +108,7 @@
 					() => {}
 				);
 			}
+			hideVideoWindow().catch(() => {});
 		};
 	});
 
@@ -115,7 +117,11 @@
 	// never a silent black rectangle.
 	$effect(() => {
 		let cancelled = false;
-		loadSettings()
+		// Report the rect first: the native surface must exist
+		// before the first loadfile, or mpv opens its own window.
+		onResize()
+			.catch(() => {})
+			.then(() => loadSettings())
 			.then((s) => {
 				quality = s.quality;
 				const height = s.quality === 'auto' ? 0 : s.quality === 'audio' ? undefined : Number(s.quality);
@@ -228,10 +234,43 @@
 		}
 	}
 
-	// Fullscreen on the video hole. Note: mpv draws in a separate child
-	// window beneath the transparent webview, so the Phase 0 spike must
-	// move that window with the hole when fullscreen changes — this call
-	// alone only fullscreens the webview.
+	// Report the video rectangle (physical px) over IPC so the
+	// native video surface can be placed over the hole. Called at
+	// mount, on resize (ResizeObserver below), and before playback
+	// starts — the surface must exist before the first loadfile, or
+	// mpv opens its own window instead.
+	function onResize() {
+		const el = document.getElementById('video-hole');
+		if (!el) return Promise.resolve();
+		const r = el.getBoundingClientRect();
+		const scale = window.devicePixelRatio || 1;
+		return reportVideoRect(r.x * scale, r.y * scale, r.width * scale, r.height * scale);
+	}
+
+	// Keep the native surface aligned with the hole: a ResizeObserver
+	// fires on theatre/fullscreen/layout changes, and window resize
+	// is the fallback. (The `onresize` attribute the div used to
+	// carry never fires on a plain element.)
+	$effect(() => {
+		const el = document.getElementById('video-hole');
+		if (!el) return;
+		onResize().catch(() => {});
+		const ro = new ResizeObserver(() => {
+			onResize().catch(() => {});
+		});
+		ro.observe(el);
+		const onWinResize = () => {
+			onResize().catch(() => {});
+		};
+		window.addEventListener('resize', onWinResize);
+		return () => {
+			ro.disconnect();
+			window.removeEventListener('resize', onWinResize);
+		};
+	});
+
+	// Fullscreen on the video hole. The native surface follows the
+	// hole through the ResizeObserver above.
 	function toggleFullscreen() {
 		const el = document.getElementById('video-hole');
 		if (!el) return;
@@ -246,16 +285,6 @@
 		return `${m}:${String(s).padStart(2, '0')}`;
 	}
 
-	// Phase 0: report the video rectangle (physical px) over IPC so mpv's
-	// child window can be placed beneath the transparent webview.
-	// Read layout on demand (pointer/resize), never at mount.
-	function onResize() {
-		const el = document.getElementById('video-hole');
-		if (!el) return;
-		const r = el.getBoundingClientRect();
-		const scale = window.devicePixelRatio || 1;
-		reportVideoRect(r.x * scale, r.y * scale, r.width * scale, r.height * scale);
-	}
 </script>
 
 <h1>{title || id}</h1>
@@ -263,7 +292,7 @@
 	<p class="error-banner" role="alert">Playback unavailable: {error}</p>
 {/if}
 <div class:theatre>
-	<div id="video-hole" style="aspect-ratio: 16/9; background: #000;" onresize={onResize}></div>
+	<div id="video-hole" style="aspect-ratio: 16/9; background: #000;"></div>
 </div>
 
 {#if status}

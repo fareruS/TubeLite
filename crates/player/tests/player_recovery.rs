@@ -125,6 +125,15 @@ impl MpvControl for SharedMpv {
         Ok(())
     }
 
+    fn set_window(&mut self, wid: i64) -> Result<(), PlayerError> {
+        self.0
+            .calls
+            .lock()
+            .unwrap()
+            .push(format!("set_window {wid}"));
+        Ok(())
+    }
+
     fn load_subtitles(&mut self, path: &str) -> Result<(), PlayerError> {
         self.0
             .calls
@@ -209,6 +218,13 @@ async fn wait_for_event(
             Err(_) => panic!("timed out waiting for event {want:?}"),
         }
     }
+}
+
+#[tokio::test]
+async fn set_window_reaches_the_control() {
+    let (player, _resolver, mpv) = make_player();
+    player.set_window(123456).await.unwrap();
+    assert!(mpv.calls().iter().any(|c| c == "set_window 123456"));
 }
 
 #[tokio::test]

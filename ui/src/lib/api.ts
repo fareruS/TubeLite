@@ -12,6 +12,7 @@ export const getWatchNext = (videoId: string) => invoke<FeedPage>('get_watch_nex
 export const getHomeContinuation = (token: string) => invoke<FeedPage>('get_home_continuation', { token });
 export const getCapabilities = () => invoke<Capabilities>('get_capabilities');
 export const reportVideoRect = (x: number, y: number, width: number, height: number) => invoke('report_video_rect', { x, y, width, height });
+export const hideVideoWindow = () => invoke('hide_video_window');
 export const signIn = () => invoke<AccountStatus>('sign_in');
 export const signOut = () => invoke<AccountStatus>('sign_out');
 export const accountStatus = () => invoke<AccountStatus>('account_status');

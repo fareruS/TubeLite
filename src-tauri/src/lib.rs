@@ -6,6 +6,7 @@ pub mod logging;
 pub mod login;
 pub mod player_ipc;
 pub mod source;
+pub mod video_window;
 
 use accounts::{open_secret_store, AccountStatus, AccountStore, SecretBackend, SessionManager};
 use feeds::{FeedPage, Feeds};
@@ -36,6 +37,10 @@ pub struct AppState {
     /// `None` only when the embedded client data is bad — startup
     /// must not fail over a feed client.
     pub feeds: Option<Arc<Feeds>>,
+    /// The native video surface mpv renders into (Windows only;
+    /// a no-op elsewhere). Created from the rect the Watch page
+    /// reports; see [`video_window`].
+    pub video_window: video_window::VideoWindow,
 }
 
 fn check_window(window: &WebviewWindow) -> Result<(), String> {
@@ -133,14 +138,14 @@ fn get_capabilities(
     Ok(state.source.capabilities())
 }
 
-/// Phase 0 spike hook: the UI reports the video rectangle (physical px =
-/// display scale × page zoom) over IPC so mpv's child window can be placed
-/// beneath the transparent webview. On this Linux VM there is no child
-/// window yet — the rect is logged (redacted: numbers only) and stored for
-/// the spike. Windows implementation lands in Phase 0.
+/// The UI reports the video rectangle (physical px = display scale
+/// × page zoom) over IPC so the native video surface can be placed
+/// over the `#video-hole`. On Windows this creates-or-moves the
+/// Win32 child window mpv renders into; elsewhere it is only logged.
 #[tauri::command]
 fn report_video_rect(
     window: WebviewWindow,
+    state: State<'_, AppState>,
     x: f64,
     y: f64,
     width: f64,
@@ -148,6 +153,35 @@ fn report_video_rect(
 ) -> Result<(), String> {
     check_window(&window)?;
     tracing::info!(x, y, width, height, "video rect reported");
+    #[cfg(windows)]
+    {
+        match window.hwnd() {
+            Ok(parent) => {
+                state.video_window.place(
+                    parent.0 as i64,
+                    x as i32,
+                    y as i32,
+                    width as i32,
+                    height as i32,
+                );
+            }
+            Err(e) => {
+                tracing::warn!("cannot get main window handle for the video surface: {e}");
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = state;
+    Ok(())
+}
+
+/// Hide the native video surface (leaving the Watch page, or an
+/// audio-only stretch). The window is kept, so the next video shows
+/// it again. No-op where there is no surface.
+#[tauri::command]
+fn hide_video_window(window: WebviewWindow, state: State<'_, AppState>) -> Result<(), String> {
+    check_window(&window)?;
+    state.video_window.hide();
     Ok(())
 }
 
@@ -622,6 +656,7 @@ pub fn run() {
                 secret_backend,
                 cookie_sync,
                 feeds,
+                video_window: video_window::VideoWindow::new(),
             });
             Ok(())
         })
@@ -633,6 +668,7 @@ pub fn run() {
             get_playable,
             get_capabilities,
             report_video_rect,
+            hide_video_window,
             get_setting,
             set_setting,
             sign_in,
