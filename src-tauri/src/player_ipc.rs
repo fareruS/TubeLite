@@ -83,6 +83,13 @@ pub struct PlayerStatus {
     /// Watch page when autoplay advances — that is how the UI
     /// notices the advance and navigates to the new video.
     pub current_video_id: Option<String>,
+    /// Playback failure message, when the player is in the Error
+    /// state — e.g. the next video could not be resolved on an
+    /// autoplay advance, which otherwise freezes the page silently
+    /// at the end of the finished video. `None` in every other
+    /// state. The message is user-facing and never contains a
+    /// cookie value.
+    pub error: Option<String>,
 }
 
 /// Convert a `Cookie` header (`NAME=value; NAME=value`) into a
@@ -246,7 +253,19 @@ impl ReadyPlayer {
             audio_only: ui.audio_only,
             quality_height: ui.quality_height,
             current_video_id,
+            error: status_error(&state),
         })
+    }
+}
+
+/// The playback error the UI should show, if any: only the Error
+/// state's message — every other state carries no error, so a
+/// stalled page is never blamed on a healthy player.
+#[cfg(feature = "mpv")]
+fn status_error(state: &PlayerState) -> Option<String> {
+    match state {
+        PlayerState::Error(message) => Some(message.clone()),
+        _ => None,
     }
 }
 
@@ -910,11 +929,43 @@ mod tests {
             audio_only: false,
             quality_height: Some(720),
             current_video_id: Some("dQw4w9WgXcQ".into()),
+            error: None,
         };
         let json = serde_json::to_string(&s).unwrap();
         assert!(json.contains("\"position_secs\":12.5"));
         assert!(json.contains("\"quality_height\":720"));
         assert!(json.contains("\"current_video_id\":\"dQw4w9WgXcQ\""));
+        assert!(json.contains("\"error\":null"));
+        let s = PlayerStatus {
+            error: Some("resolve failed: boom".into()),
+            ..s
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains("\"error\":\"resolve failed: boom\""));
+    }
+
+    /// Only the Error state carries an error message for the UI;
+    /// every other state maps to None.
+    #[cfg(feature = "mpv")]
+    #[test]
+    fn status_error_maps_only_the_error_state() {
+        assert_eq!(
+            status_error(&PlayerState::Error("resolve failed: boom".into())),
+            Some("resolve failed: boom".into())
+        );
+        for state in [
+            PlayerState::Idle,
+            PlayerState::Loading,
+            PlayerState::Playing,
+            PlayerState::Paused,
+            PlayerState::Ended,
+        ] {
+            assert_eq!(
+                status_error(&state),
+                None,
+                "{state:?} must not carry an error"
+            );
+        }
     }
 
     #[test]

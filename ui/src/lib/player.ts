@@ -13,6 +13,8 @@ export interface PlayerStatus {
 	quality_height: number | null;
 	/** Id of the video actually loaded; changes when autoplay advances. */
 	current_video_id: string | null;
+	/** Playback failure message (e.g. the next video could not be resolved); null otherwise. */
+	error: string | null;
 }
 
 export const playVideo = (id: string, height?: number) =>

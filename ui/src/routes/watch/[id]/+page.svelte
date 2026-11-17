@@ -355,6 +355,18 @@
 {#if error}
 	<p class="error-banner" role="alert">Playback unavailable: {error}</p>
 {/if}
+{#if status?.error}
+	<p class="error-banner" role="alert">
+		Couldn't play the next video: {status.error}
+		<button
+			onclick={() => {
+				playerNext().catch((e) => (error = String(e)));
+			}}
+		>
+			Skip to next
+		</button>
+	</p>
+{/if}
 <div class:theatre>
 	<div id="video-hole" style="aspect-ratio: 16/9; background: #000;"></div>
 </div>
@@ -534,6 +546,9 @@
 		padding: 0.75rem 1rem;
 		font-weight: 600;
 		margin: 0.75rem 0;
+	}
+	.error-banner button {
+		margin-left: 0.75rem;
 	}
 	.chapter-now {
 		color: var(--muted);

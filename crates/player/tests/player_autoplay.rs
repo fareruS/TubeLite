@@ -27,6 +27,9 @@ struct FakeResolver {
     /// Ids whose *first* resolve fails (to simulate a failed
     /// prefetch); later resolves succeed.
     fail_once: Mutex<HashSet<String>>,
+    /// Ids whose *every* resolve fails (to simulate a video that
+    /// cannot be resolved at all, e.g. on an autoplay advance).
+    fail_always: Mutex<HashSet<String>>,
 }
 
 impl FakeResolver {
@@ -34,6 +37,7 @@ impl FakeResolver {
         Self {
             calls: Mutex::new(Vec::new()),
             fail_once: Mutex::new(HashSet::new()),
+            fail_always: Mutex::new(HashSet::new()),
         }
     }
 
@@ -47,6 +51,13 @@ impl FakeResolver {
 
     fn fail_first_resolve_of(&self, video_id: &str) {
         self.fail_once.lock().unwrap().insert(video_id.to_string());
+    }
+
+    fn fail_every_resolve_of(&self, video_id: &str) {
+        self.fail_always
+            .lock()
+            .unwrap()
+            .insert(video_id.to_string());
     }
 }
 
@@ -62,6 +73,12 @@ impl Resolver for FakeResolver {
                 .lock()
                 .unwrap()
                 .push((video_id.clone(), max_height));
+            if self.fail_always.lock().unwrap().contains(&video_id) {
+                return Err(ResolveError::YtDlpFailed {
+                    video_id: video_id.clone(),
+                    stderr: "fake permanent failure".into(),
+                });
+            }
             if self.fail_once.lock().unwrap().remove(&video_id) {
                 return Err(ResolveError::YtDlpFailed {
                     video_id: video_id.clone(),
@@ -307,6 +324,63 @@ async fn failed_prefetch_falls_back_to_resolve_on_advance() {
     wait_for("v1 loaded", || mpv.loaded_ids().contains(&"v1".to_string())).await;
     assert_eq!(resolver.calls_for("v1"), 2);
     assert_eq!(player.current_video_id().await.as_deref(), Some("v1"));
+
+    player.stop();
+    pump.await.unwrap();
+}
+
+#[tokio::test]
+async fn failed_autoplay_advance_leaves_player_in_error_state() {
+    // The reported bug: when the next video cannot be resolved, the
+    // Watch page froze silently at the end of the finished video.
+    // The player must land in Error with the message preserved (so
+    // `player_status` can surface it), not report Ended and not
+    // leave the current video pointing at the failed item.
+    let (player, resolver, mpv) = make_player();
+    let pump = spawn_pump(&player);
+    resolver.fail_every_resolve_of("v1");
+    player
+        .set_queue(vec![item("v0"), item("v1")], Some("v0"))
+        .await;
+
+    player.play("v0").await.unwrap();
+    assert_eq!(player.state().await, PlayerState::Playing);
+    // The prefetch of v1 fails (silently) while v0 still plays.
+    wait_for("failed prefetch of v1", || resolver.calls_for("v1") == 1).await;
+
+    // Natural end: the autoplay advance re-resolves v1, fails again.
+    mpv.push_event(MpvEvent::EndFileEof);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let state = loop {
+        let s = player.state().await;
+        if matches!(s, PlayerState::Error(_)) {
+            break s;
+        }
+        if tokio::time::Instant::now() > deadline {
+            panic!("timed out waiting for the Error state; last: {s:?}");
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    let PlayerState::Error(message) = state else {
+        unreachable!()
+    };
+    assert!(
+        message.contains("resolve failed"),
+        "error must name the failure: {message}"
+    );
+    assert!(
+        message.contains("v1"),
+        "error must name the video: {message}"
+    );
+    assert_eq!(
+        player.current_video_id().await.as_deref(),
+        Some("v0"),
+        "the failed advance must not move the current video"
+    );
+    assert!(
+        !mpv.loaded_ids().contains(&"v1".to_string()),
+        "v1 was never loaded"
+    );
 
     player.stop();
     pump.await.unwrap();
