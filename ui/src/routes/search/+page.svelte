@@ -13,18 +13,11 @@
 
 	let reqId = 0;
 
-	$effect(() => {
-		query = q;
-		if (!q) {
-			items = [];
-			error = '';
-			loading = false;
-			return;
-		}
+	function runSearch(term: string) {
 		const id = ++reqId;
 		loading = true;
 		error = '';
-		searchVideos(q)
+		searchVideos(term)
 			.then((page) => {
 				if (id === reqId) items = page.items;
 			})
@@ -34,11 +27,31 @@
 			.finally(() => {
 				if (id === reqId) loading = false;
 			});
+	}
+
+	$effect(() => {
+		query = q;
+		if (!q) {
+			items = [];
+			error = '';
+			loading = false;
+			return;
+		}
+		runSearch(q);
 	});
 
 	function onSubmit(e: SubmitEvent) {
 		e.preventDefault();
-		if (query.trim()) goto(`/search?q=${encodeURIComponent(query.trim())}`);
+		const term = query.trim();
+		if (!term) return;
+		// Re-searching the same query must re-run: goto() to the
+		// identical URL is a no-op, so the effect above would never
+		// fire and the button looked dead.
+		if (term === q) {
+			runSearch(term);
+		} else {
+			goto(`/search?q=${encodeURIComponent(term)}`);
+		}
 	}
 </script>
 

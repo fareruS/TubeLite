@@ -173,6 +173,18 @@ impl Feeds {
             body["params"] = json!(params);
         }
         let value = self.inner.post("search", CLIENT, body).await?;
+        // A search response without `contents` is not a genuine
+        // zero-result page — a real empty search still carries
+        // `contents` with a message renderer. Without it the
+        // response is an error/empty payload (rate limit, challenge)
+        // that must surface as an error, not a silent empty page
+        // the user cannot tell apart from "no results".
+        if value.get("contents").is_none() {
+            return Err(Error::UnexpectedShape(
+                "search response has no contents; YouTube returned an empty or error payload"
+                    .to_string(),
+            ));
+        }
         Ok(parse_feed(&value))
     }
 

@@ -214,6 +214,28 @@ async fn playlist_library_and_watch_later_post_their_guide_browse_ids() {
 }
 
 #[tokio::test]
+async fn search_parses_fixture_response() {
+    let mock = Mock::start(fixture_text("search.response.json")).await;
+    let feeds = feeds_for(&mock);
+    let page = feeds.search("rust", None).await.expect("search");
+    assert_eq!(page.items.len(), 18);
+}
+
+#[tokio::test]
+async fn search_errors_when_response_has_no_contents() {
+    // A 200 response without `contents` is an empty/error payload
+    // (rate limit, challenge), not a genuine zero-result page —
+    // it must surface as an error, never a silent empty page.
+    let mock = Mock::start("{}".to_string()).await;
+    let feeds = feeds_for(&mock);
+    let err = feeds
+        .search("rust programming", None)
+        .await
+        .expect_err("contents-less search must fail");
+    assert!(err.to_string().contains("no contents"));
+}
+
+#[tokio::test]
 async fn search_suggestions_names_the_capture_needed() {
     let mock = Mock::start("{}".to_string()).await;
     let feeds = feeds_for(&mock);
