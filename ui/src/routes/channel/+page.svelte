@@ -1,1 +1,2 @@
-<h1>channel</h1><p>Skeleton — Phase 4.</p>
+<h1>Channel</h1>
+<p>Open a channel from any video to see its videos here.</p>

@@ -3,9 +3,10 @@
 //! The UI never chooses a source; it calls IPC commands, and the app
 //! crate resolves them against the configured chain:
 //!
-//! - `source_mode = "fixture"` (default): `FixtureSource` — offline demo
-//!   data. Safe default while live InnerTube is unverified on this VM's
-//!   egress (see KNOWN-ISSUES.md).
+//! - `source_mode = "fixture"`: `FixtureSource` — offline demo
+//!   data. Only when explicitly set (tests use it); the shipped
+//!   default is the live chain (lib.rs defaults an absent
+//!   `source_mode` to `"innertube"`).
 //! - `source_mode = "innertube"`: `InnerTubeSource` primary; if the
 //!   `ytdlp_path` setting names a sidecar binary, `ExtractorSource` is
 //!   the fallback for `playable()` only (it cannot search or browse).

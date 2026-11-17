@@ -1,88 +1,84 @@
 <script lang="ts">
-	import { invoke } from '@tauri-apps/api/core';
+	import { getHistory, getLibraryPlaylists, getWatchLater } from '$lib/api';
+	import VideoList from '$lib/VideoList.svelte';
+	import type { FeedItem } from '$lib/types';
 
-	interface HistoryEntry {
-		video_id: string;
-		title: string;
-		channel: string;
-		played_at: number;
-		position_secs: number;
-		duration_secs: number | null;
-	}
-
-	interface WatchLaterEntry {
-		video_id: string;
-		title: string;
-		channel: string;
-		added_at: number;
-	}
-
-	let entries = $state<HistoryEntry[]>([]);
-	let watchLater = $state<WatchLaterEntry[]>([]);
-	let error = $state('');
-
-	function loadWatchLater() {
-		invoke<WatchLaterEntry[]>('list_watch_later')
-			.then((w) => {
-				watchLater = w;
-			})
-			.catch((e) => {
-				error = String(e);
-			});
-	}
+	let watchLater = $state<FeedItem[]>([]);
+	let history = $state<FeedItem[]>([]);
+	let playlists = $state<FeedItem[]>([]);
+	let wlError = $state('');
+	let histError = $state('');
+	let plError = $state('');
+	let wlLoading = $state(false);
+	let histLoading = $state(false);
+	let plLoading = $state(false);
 
 	$effect(() => {
-		invoke<HistoryEntry[]>('list_history', { limit: 50 })
-			.then((h) => {
-				entries = h;
+		wlLoading = true;
+		getWatchLater()
+			.then((p) => {
+				watchLater = p.items;
 			})
 			.catch((e) => {
-				error = String(e);
+				wlError = String(e);
+			})
+			.finally(() => {
+				wlLoading = false;
 			});
-		loadWatchLater();
+		histLoading = true;
+		getHistory()
+			.then((p) => {
+				history = p.items;
+			})
+			.catch((e) => {
+				histError = String(e);
+			})
+			.finally(() => {
+				histLoading = false;
+			});
+		plLoading = true;
+		getLibraryPlaylists()
+			.then((p) => {
+				playlists = p.items;
+			})
+			.catch((e) => {
+				plError = String(e);
+			})
+			.finally(() => {
+				plLoading = false;
+			});
 	});
-
-	async function removeSaved(videoId: string) {
-		await invoke('remove_watch_later', { videoId });
-		loadWatchLater();
-	}
-
-	function fmt(secs: number | null | undefined): string {
-		if (secs == null) return '';
-		const m = Math.floor(secs / 60);
-		const s = Math.floor(secs % 60);
-		return `${m}:${String(s).padStart(2, '0')}`;
-	}
 </script>
 
 <h1>Library</h1>
-{#if error}<p role="alert">{error}</p>{/if}
 
 <h2>Watch later</h2>
-{#if watchLater.length === 0}
+{#if wlLoading}<p>Loading…</p>{/if}
+{#if wlError}<p role="alert">couldn't load feed: {wlError}</p>{/if}
+{#if !wlLoading && !wlError && watchLater.length === 0}
 	<p>Nothing saved — use “+ Watch later” on any video.</p>
-{:else}
-	<ul>
-		{#each watchLater as w (w.video_id)}
-			<li>
-				<a href={`/watch/${w.video_id}`}>{w.title || w.video_id}</a> — {w.channel}
-				<button onclick={() => removeSaved(w.video_id)}>Remove</button>
-			</li>
-		{/each}
-	</ul>
 {/if}
+<VideoList items={watchLater} />
 
 <h2>History</h2>
-{#if entries.length === 0 && !error}
+{#if histLoading}<p>Loading…</p>{/if}
+{#if histError}<p role="alert">couldn't load feed: {histError}</p>{/if}
+{#if !histLoading && !histError && history.length === 0}
 	<p>Nothing watched yet.</p>
-{:else}
-	<ul>
-		{#each entries as e (e.video_id)}
-			<li>
-				<a href={`/watch/${e.video_id}`}>{e.title}</a> — {e.channel}
-				{#if e.position_secs > 5} · resume at {fmt(e.position_secs)}{/if}
-				{#if e.duration_secs != null} / {fmt(e.duration_secs)}{/if}
-			</li>
-		{/each}
-	</ul>
 {/if}
+<VideoList items={history} />
+
+<h2>Playlists</h2>
+{#if plLoading}<p>Loading…</p>{/if}
+{#if plError}<p role="alert">couldn't load feed: {plError}</p>{/if}
+{#if !plLoading && !plError && playlists.length === 0}
+	<p>No playlists yet.</p>
+{/if}
+<ul>
+	{#each playlists as pl (pl.video_id)}
+		<li>
+			<a href={`/playlist/${pl.video_id}`}>{pl.title}</a>
+			{#if pl.channel_name} — {pl.channel_name}{/if}
+		</li>
+	{/each}
+</ul>

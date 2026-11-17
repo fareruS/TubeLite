@@ -1,32 +1,41 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { invoke } from '@tauri-apps/api/core';
 	import { goto } from '$app/navigation';
+	import { getPlaylistFeed } from '$lib/api';
 	import VideoList from '$lib/VideoList.svelte';
-	import type { VideoCard } from '$lib/types';
+	import type { FeedItem } from '$lib/types';
 
 	let id = $derived($page.params.id ?? '');
-	let videos = $state<VideoCard[]>([]);
+	let items = $state<FeedItem[]>([]);
 	let error = $state('');
+	let loading = $state(false);
 
 	$effect(() => {
-		invoke<{ items: VideoCard[] }>('get_playlist', { id })
-			.then((page) => {
-				videos = page.items;
+		if (!id) return;
+		loading = true;
+		error = '';
+		getPlaylistFeed(id)
+			.then((p) => {
+				items = p.items;
 			})
 			.catch((e) => {
 				error = String(e);
+			})
+			.finally(() => {
+				loading = false;
 			});
 	});
 
 	function playAll() {
-		if (videos[0]) goto(`/watch/${videos[0].id}`);
+		if (items[0]) goto(`/watch/${items[0].video_id}`);
 	}
 </script>
 
 <h1>Playlist</h1>
-{#if error}<p role="alert">{error}</p>{/if}
-{#if videos.length > 0}
-	<p>{videos.length} videos <button onclick={playAll}>▶ Play all</button></p>
+{#if loading}<p>Loading…</p>{/if}
+{#if error}<p role="alert">couldn't load feed: {error}</p>{/if}
+{#if !loading && !error && items.length === 0}<p>This playlist is empty.</p>{/if}
+{#if items.length > 0}
+	<p>{items.length} videos <button onclick={playAll}>▶ Play all</button></p>
 {/if}
-<VideoList {videos} />
+<VideoList {items} />

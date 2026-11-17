@@ -56,6 +56,10 @@ pub trait MpvControl: Send {
     fn set_pause(&mut self, pause: bool) -> Result<(), PlayerError>;
     fn seek(&mut self, secs: f64) -> Result<(), PlayerError>;
     fn set_option(&mut self, key: &str, value: &str) -> Result<(), PlayerError>;
+    /// Load an external subtitle file and select it.
+    fn load_subtitles(&mut self, path: &str) -> Result<(), PlayerError>;
+    /// Turn subtitles off.
+    fn disable_subtitles(&mut self) -> Result<(), PlayerError>;
     /// Set the stage-1 options (see [`MpvConfig::stage1_options`](crate::MpvConfig::stage1_options))
     /// before any playback.
     fn apply_stage1_options(&mut self, cache_dir: &Path) -> Result<(), PlayerError>;
@@ -162,6 +166,37 @@ impl Player {
 
     pub async fn position(&self) -> f64 {
         self.inner.state.lock().await.last_position
+    }
+
+    /// Duration of the loaded item, when known. (mpv reports it after
+    /// the file opens; the event loop keeps it fresh.)
+    pub async fn duration(&self) -> Option<f64> {
+        self.inner.state.lock().await.duration
+    }
+
+    /// Cap used by the next [`Player::play`]. For a video already
+    /// loaded, use [`Player::set_quality`] instead (it re-resolves and
+    /// resumes at the saved position).
+    pub async fn set_max_height(&self, max_height: u32) {
+        self.inner.state.lock().await.max_height = max_height;
+    }
+
+    /// Set one mpv option on the underlying control (speed, volume,
+    /// mute, vid, ...). Applied immediately; mpv properties persist
+    /// across `loadfile`, so a value set before any playback is still
+    /// in effect for the next item.
+    pub async fn set_option(&self, key: &str, value: &str) -> Result<(), PlayerError> {
+        self.inner.control.lock().await.set_option(key, value)
+    }
+
+    /// Load an external subtitle file into mpv and select it.
+    pub async fn load_subtitles(&self, path: &str) -> Result<(), PlayerError> {
+        self.inner.control.lock().await.load_subtitles(path)
+    }
+
+    /// Turn subtitles off.
+    pub async fn disable_subtitles(&self) -> Result<(), PlayerError> {
+        self.inner.control.lock().await.disable_subtitles()
     }
 
     fn emit(&self, event: PlayerEvent) {

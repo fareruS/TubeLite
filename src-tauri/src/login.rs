@@ -90,15 +90,20 @@ impl LoginFlow for TauriLoginFlow {
 }
 
 /// Open the sign-in popup and wait for a youtube.com landing with a
-/// SAPISID in the jar.
+/// SAPISID in the jar. The jar is polled every 500 ms: after sign-in
+/// the popup lands on the YouTube homepage, which is a SPA, so no
+/// further full page load may ever fire — and YouTube can mint the
+/// session cookies via later requests, after the landing Finished
+/// event. Waiting only for the next page-load signal would leave the
+/// popup sitting on the homepage until the timeout.
 async fn login_popup(app: &AppHandle) -> Result<CookieSet, Error> {
     let url = Url::parse(LOGIN_URL).map_err(|e| Error::Flow(format!("bad login url: {e}")))?;
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
 
     // Window creation must happen on the main thread. The page-load
     // handler signals every finished load on youtube.com; the wait
-    // loop below harvests after each one and keeps waiting while the
-    // jar has no SAPISID (the user has not signed in yet).
+    // loop below harvests after each signal AND polls the jar on a
+    // 500 ms tick, returning as soon as it holds a SAPISID.
     let app2 = app.clone();
     let dispatched = app.run_on_main_thread(move || {
         destroy_window(&app2, LOGIN_LABEL);
@@ -133,19 +138,32 @@ async fn login_popup(app: &AppHandle) -> Result<CookieSet, Error> {
                 if app.get_webview_window(LOGIN_LABEL).is_none() {
                     return Err(Error::LoginCancelled);
                 }
+                // Poll the jar: the homepage is a SPA, so the landing
+                // Finished event may be the last signal ever, while the
+                // session cookies can arrive via later requests.
+                match harvest_if_signed_in(app, LOGIN_LABEL).await {
+                    Ok(Some(cookies)) => {
+                        destroy_window(app, LOGIN_LABEL);
+                        return Ok(cookies);
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        tracing::warn!(error = %e, "could not read the sign-in cookies; waiting");
+                    }
+                }
             }
             signal = rx.recv() => {
                 if signal.is_none() {
                     return Err(Error::LoginCancelled);
                 }
-                match read_cookies(app, LOGIN_LABEL).await {
-                    Ok(cookies) if cookies.signed_in() => {
+                match harvest_if_signed_in(app, LOGIN_LABEL).await {
+                    Ok(Some(cookies)) => {
                         destroy_window(app, LOGIN_LABEL);
                         return Ok(cookies);
                     }
-                    Ok(_) => {
+                    Ok(None) => {
                         // Landed on youtube.com but not signed in yet —
-                        // keep waiting for the next page load.
+                        // keep waiting for the next tick or page load.
                     }
                     Err(e) => {
                         tracing::warn!(error = %e, "could not read the sign-in cookies; waiting");
@@ -161,7 +179,11 @@ async fn login_popup(app: &AppHandle) -> Result<CookieSet, Error> {
 }
 
 /// Load youtube.com in a hidden window and harvest the re-minted
-/// cookies. One attempt only — the caller falls back to the popup.
+/// cookies. The jar is polled every 500 ms until it holds a SAPISID
+/// or the 30 s timeout hits — the same race as the popup applies
+/// here: the Finished event fires on page load, but the refreshed
+/// cookies can arrive via later requests. One attempt only — the
+/// caller falls back to the popup.
 async fn silent_refresh(app: &AppHandle) -> Result<CookieSet, Error> {
     let url = Url::parse(REFRESH_URL).map_err(|e| Error::Flow(format!("bad refresh url: {e}")))?;
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
@@ -191,16 +213,29 @@ async fn silent_refresh(app: &AppHandle) -> Result<CookieSet, Error> {
     }
 
     let outcome = tokio::time::timeout(REFRESH_TIMEOUT, async {
-        if app.get_webview_window(REFRESH_LABEL).is_none() {
-            return Err(Error::Flow("refresh window closed".into()));
-        }
-        match rx.recv().await {
-            Some(()) => match read_cookies(app, REFRESH_LABEL).await {
-                Ok(cookies) if cookies.signed_in() => Ok(cookies),
-                Ok(_) => Err(Error::NotSignedIn),
-                Err(e) => Err(e),
-            },
-            None => Err(Error::Flow("refresh window closed".into())),
+        loop {
+            if app.get_webview_window(REFRESH_LABEL).is_none() {
+                return Err(Error::Flow("refresh window closed".into()));
+            }
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_millis(500)) => {
+                    match harvest_if_signed_in(app, REFRESH_LABEL).await {
+                        Ok(Some(cookies)) => return Ok(cookies),
+                        Ok(None) => {}
+                        Err(e) => return Err(e),
+                    }
+                }
+                signal = rx.recv() => {
+                    match signal {
+                        Some(()) => match harvest_if_signed_in(app, REFRESH_LABEL).await {
+                            Ok(Some(cookies)) => return Ok(cookies),
+                            Ok(None) => {}
+                            Err(e) => return Err(e),
+                        },
+                        None => return Err(Error::Flow("refresh window closed".into())),
+                    }
+                }
+            }
         }
     })
     .await;
@@ -208,6 +243,17 @@ async fn silent_refresh(app: &AppHandle) -> Result<CookieSet, Error> {
     match outcome {
         Ok(result) => result,
         Err(_) => Err(Error::LoginTimeout),
+    }
+}
+
+/// Read the window's cookies; `Ok(Some(cookies))` once the jar holds
+/// a SAPISID, `Ok(None)` while it does not, `Err` when the jar cannot
+/// be read at all. Cookie values are never logged.
+async fn harvest_if_signed_in(app: &AppHandle, label: &str) -> Result<Option<CookieSet>, Error> {
+    match read_cookies(app, label).await {
+        Ok(cookies) if cookies.signed_in() => Ok(Some(cookies)),
+        Ok(_) => Ok(None),
+        Err(e) => Err(e),
     }
 }
 

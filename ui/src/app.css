@@ -2,6 +2,11 @@
 :root { --bg: #0f0f0f; --fg: #f1f1f1; --accent: #ff0033; --muted: #aaa; --border: #2a2a2a; --accent-soft: rgb(255 0 51 / 0.15); }
 [data-theme="light"] { --bg: #ffffff; --fg: #0f0f0f; --muted: #606060; --border: #e0e0e0; --accent-soft: rgb(255 0 51 / 0.08); }
 html, body { background: var(--bg); color: var(--fg); }
+/* Page container: keep content off the window edges and inside a readable
+   width (app window is 1280x800 — without this, content sat flush to the
+   edges and clipped on the right). */
+main { max-width: 1200px; margin: 0 auto; padding: 16px 20px; }
+nav[aria-label="Main"] { max-width: 1200px; margin: 0 auto; padding: 12px 20px 0; }
 /* Hover animates colour only — no transform on repeated cards/rows (see docs/UI-PERFORMANCE.md). */
 .video-card { transition-colors: 150ms; }
 .video-card:hover { color: var(--accent); }

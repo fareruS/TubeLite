@@ -1,1 +1,2 @@
-<h1>playlist</h1><p>Skeleton — Phase 4.</p>
+<h1>Playlist</h1>
+<p>Open a playlist from your Library to see its videos here.</p>

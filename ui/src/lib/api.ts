@@ -1,7 +1,15 @@
 // UI -> Rust only. The UI never talks to YouTube directly.
 import { invoke } from '@tauri-apps/api/core';
-import type { AccountStatus, Capabilities, FeedPage, VideoCard } from './types';
-export const searchVideos = (query: string) => invoke<{ items: VideoCard[]; next_cursor?: string | null }>('search_videos', { query });
+import type { AccountStatus, Capabilities, FeedPage } from './types';
+export const searchVideos = (query: string) => invoke<FeedPage>('search_videos', { query });
+export const getSubscriptions = () => invoke<FeedPage>('get_subscriptions');
+export const getHistory = () => invoke<FeedPage>('get_history');
+export const getLibraryPlaylists = () => invoke<FeedPage>('get_library_playlists');
+export const getPlaylistFeed = (browseId: string) => invoke<FeedPage>('get_playlist_feed', { browseId });
+export const getWatchLater = () => invoke<FeedPage>('get_watch_later');
+export const getChannelVideos = (channelId: string) => invoke<FeedPage>('get_channel_videos', { channelId });
+export const getWatchNext = (videoId: string) => invoke<FeedPage>('get_watch_next', { videoId });
+export const getHomeContinuation = (token: string) => invoke<FeedPage>('get_home_continuation', { token });
 export const getCapabilities = () => invoke<Capabilities>('get_capabilities');
 export const reportVideoRect = (x: number, y: number, width: number, height: number) => invoke('report_video_rect', { x, y, width, height });
 export const signIn = () => invoke<AccountStatus>('sign_in');

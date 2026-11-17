@@ -30,6 +30,14 @@ pub struct MpvControlImpl {
 impl MpvControlImpl {
     pub fn new(config: &MpvConfig) -> Result<Self, libmpv2::Error> {
         let player = MpvPlayer::new(config)?;
+        // v0.1.0: `MpvPlayer::new` applies `as_options`, which sets
+        // `vo=libmpv` for the future embedded render path — but no
+        // render context exists yet, so with `vo=libmpv` there would
+        // be no window and no picture. The stage-1 options
+        // (`MpvConfig::stage1_options`) deliberately set no `vo` key,
+        // so override it here to mpv's own window (`gpu`) until the
+        // embedded video surface lands; delete this override then.
+        player.set_option("vo", "gpu")?;
         player.enable_log_messages()?;
         Ok(Self { player })
     }
@@ -54,6 +62,14 @@ impl MpvControl for MpvControlImpl {
 
     fn set_option(&mut self, key: &str, value: &str) -> Result<(), PlayerError> {
         self.player.set_option(key, value).map_err(map_err)
+    }
+
+    fn load_subtitles(&mut self, path: &str) -> Result<(), PlayerError> {
+        self.player.load_subtitles(path).map_err(map_err)
+    }
+
+    fn disable_subtitles(&mut self) -> Result<(), PlayerError> {
+        self.player.disable_subtitles().map_err(map_err)
     }
 
     fn apply_stage1_options(&mut self, cache_dir: &Path) -> Result<(), PlayerError> {

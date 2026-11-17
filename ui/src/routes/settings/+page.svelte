@@ -120,7 +120,7 @@
 		</select>
 	</label>
 
-	<label>
+	<label class="check-inline">
 		<input type="checkbox" bind:checked={settings.audioOnly} />
 		Audio-only mode
 	</label>
@@ -175,6 +175,12 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.25rem;
+	}
+	label.check-inline {
+		display: inline-flex;
+		flex-direction: row;
+		align-items: center;
+		gap: 0.5rem;
 	}
 	.note {
 		opacity: 0.7;

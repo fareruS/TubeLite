@@ -1,28 +1,60 @@
 //! Player IPC — the UI's only way to drive playback.
 //!
-//! `PlayerSlot` holds the `PlayerService` behind the `mpv` feature.
-//! Without the feature (default build, CI) the slot is `Disabled` and
-//! every command returns a clear error instead of failing the build or
-//! the app — playback is a build-time capability, not a runtime crash.
-//! A failed libmpv initialisation also degrades to `Disabled` with a
-//! warning log; startup never fails because the player could not start.
+//! `PlayerSlot` holds the new `player::Player` (yt-dlp resolution via
+//! [`SessionResolver`], mpv behind `MpvControlImpl`) behind the `mpv`
+//! feature. Without the feature (default build, CI) the slot is
+//! `Disabled` and every command returns a clear error instead of
+//! failing the build or the app — playback is a build-time capability,
+//! not a runtime crash. A failed libmpv initialisation also degrades
+//! to `Disabled` with a warning log; startup never fails because the
+//! player could not start.
 //!
-//! Commands: `play_video` (resolve via the source chain, then load),
-//! `player_play` / `player_pause` / `player_toggle`, `player_seek`,
-//! `player_set_speed`, `player_set_audio_only`, `player_status`
-//! (syncs mpv's clock into the state, 4 Hz tick per the plan),
-//! `player_next` (advances the queue and returns the next video id;
-//! the UI then calls `play_video` for it).
+//! v0.1.0 video: the stage-1 mpv options
+//! (`MpvConfig::stage1_options`, applied by `Player::new`) set NO `vo`
+//! key, so mpv opens its own window for video instead of rendering
+//! into the webview — the embedded video surface is unbuilt, and the
+//! `vo=libmpv` the old path used has no render context yet. See
+//! `MpvControlImpl::new`, which overrides the `vo=libmpv` that
+//! `MpvPlayer::new` applies back to `gpu` for this reason. Embedded
+//! video (render context under the webview) is the follow-up; when it
+//! lands, delete that override and this paragraph.
+//!
+//! Commands (names and the `PlayerStatus` shape are the UI contract —
+//! `ui/src/lib/player.ts` invokes them and must not change):
+//! `play_video` (resolve via yt-dlp, then load), `player_play` /
+//! `player_pause` / `player_toggle`, `player_seek`,
+//! `player_set_speed`, `player_set_volume`, `player_set_muted`,
+//! `player_set_audio_only`, `player_status` (reads the new Player's
+//! state, which its event loop keeps fresh), `player_next` (no queue
+//! is carried over by the new Player, so it returns `Ok(None)`).
+//! Speed / volume / mute / audio-only are UI-side state applied to
+//! mpv with `set_option`; mpv properties persist across `loadfile`,
+//! so a value set before any playback still applies to the next item.
 
 #[cfg(feature = "mpv")]
-use std::sync::Mutex;
+use std::path::PathBuf;
+#[cfg(feature = "mpv")]
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
+use innertube::SharedSession;
+#[cfg(feature = "mpv")]
+use player::PlayerState;
 use serde::Serialize;
 use tauri::{State, WebviewWindow};
-use yt_model::{QualityPref, VideoId};
+#[cfg(feature = "mpv")]
+use yt_model::VideoId;
+#[cfg(feature = "mpv")]
+use yt_source::StreamSource;
 
 use crate::{check_window, AppState};
-use yt_source::StreamSource;
+
+#[cfg(feature = "mpv")]
+use player::{Resolver, YtDlpResolver};
+#[cfg(feature = "mpv")]
+use std::future::Future;
+#[cfg(feature = "mpv")]
+use std::pin::Pin;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PlayerStatus {
@@ -36,17 +68,469 @@ pub struct PlayerStatus {
     pub quality_height: Option<u32>,
 }
 
+/// Convert a `Cookie` header (`NAME=value; NAME=value`) into a
+/// Netscape cookie-file export for `.youtube.com`, the shape
+/// `YtDlpResolver::with_cookies` takes. Pairs with an empty value
+/// (deletions) and malformed pairs are skipped. Returns `None` when
+/// no usable pair survives. Cookie *values* are copied, never logged.
+/// (Only called from the `mpv` path; kept compiled in all builds so
+/// its tests run without libmpv.)
+#[cfg_attr(not(feature = "mpv"), allow(dead_code))]
+fn cookie_header_to_netscape(header: &str) -> Option<String> {
+    let expiry = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() + 365 * 24 * 3600)
+        .unwrap_or(0);
+    let mut out = String::from("# Netscape HTTP Cookie File\n");
+    let mut any = false;
+    for pair in header.split(';') {
+        let pair = pair.trim();
+        if pair.is_empty() {
+            continue;
+        }
+        let Some((name, value)) = pair.split_once('=') else {
+            continue;
+        };
+        let name = name.trim();
+        let value = value.trim();
+        if name.is_empty()
+            || value.is_empty()
+            || name.contains(['\t', '\n', '\r'])
+            || value.contains(['\t', '\n', '\r'])
+        {
+            continue;
+        }
+        // domain, flag (subdomains included), path, secure (all
+        // requests are HTTPS), expiry, name, value.
+        out.push_str(&format!(
+            ".youtube.com\tTRUE\t/\tTRUE\t{expiry}\t{name}\t{value}\n"
+        ));
+        any = true;
+    }
+    if any {
+        Some(out)
+    } else {
+        None
+    }
+}
+
+/// yt-dlp binary, in order: the `ytdlp_path` setting, a sidecar next
+/// to the current exe (the shipped zip puts `yt-dlp.exe` beside
+/// `TubeLite.exe`), otherwise `yt-dlp` on `PATH`. A missing binary
+/// surfaces the resolver's error naming the install/update command.
+#[cfg(feature = "mpv")]
+fn resolve_ytdlp_path(setting: Option<String>) -> PathBuf {
+    if let Some(path) = setting.filter(|p| !p.trim().is_empty()) {
+        return PathBuf::from(path);
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            for name in ["yt-dlp.exe", "yt-dlp"] {
+                let sidecar = dir.join(name);
+                if sidecar.exists() {
+                    return sidecar;
+                }
+            }
+        }
+    }
+    PathBuf::from("yt-dlp")
+}
+
+/// A [`Resolver`] that builds a fresh [`YtDlpResolver`] on every
+/// resolve, feeding it the CURRENT cookie header from the shared
+/// accounts session — so a sign-in (or a cookie rotation) after
+/// startup is picked up by the next resolve. Cookies come only from
+/// the live session, never from a file on disk and never hardcoded;
+/// the resolver itself writes them to a 0600 temp file that lives
+/// only for the resolve call.
+#[cfg(feature = "mpv")]
+struct SessionResolver {
+    session: SharedSession,
+    yt_dlp: PathBuf,
+}
+
+#[cfg(feature = "mpv")]
+impl SessionResolver {
+    fn new(session: SharedSession, yt_dlp: PathBuf) -> Self {
+        Self { session, yt_dlp }
+    }
+}
+
+#[cfg(feature = "mpv")]
+impl Resolver for SessionResolver {
+    fn resolve(
+        &self,
+        video_id: &str,
+        max_height: u32,
+    ) -> Pin<Box<dyn Future<Output = Result<player::Resolved, player::ResolveError>> + Send + '_>>
+    {
+        let video_id = video_id.to_string();
+        Box::pin(async move {
+            let mut resolver = YtDlpResolver::new(self.yt_dlp.clone());
+            if let Some(header) = self.session.cookie().await {
+                if let Some(netscape) = cookie_header_to_netscape(&header) {
+                    resolver = resolver.with_cookies(netscape);
+                }
+            }
+            resolver.resolve(&video_id, max_height).await
+        })
+    }
+}
+
+/// UI-side playback settings the new `player::Player` does not own
+/// (speed, volume, mute, audio-only, quality). Applied to mpv with
+/// `set_option` and kept here so `player_status` can report them.
+#[cfg(feature = "mpv")]
+struct SlotUi {
+    speed: f64,
+    volume: f64,
+    muted: bool,
+    audio_only: bool,
+    quality_height: Option<u32>,
+}
+
+#[cfg(feature = "mpv")]
+impl Default for SlotUi {
+    fn default() -> Self {
+        Self {
+            speed: 1.0,
+            volume: 100.0,
+            muted: false,
+            audio_only: false,
+            quality_height: Some(720),
+        }
+    }
+}
+
+#[cfg(feature = "mpv")]
+pub struct ReadyPlayer {
+    player: player::Player,
+    ui: Mutex<SlotUi>,
+}
+
+#[cfg(feature = "mpv")]
+impl ReadyPlayer {
+    async fn status(&self) -> Result<PlayerStatus, String> {
+        let state = self.player.state().await;
+        let position = self.player.position().await;
+        let duration = self.player.duration().await;
+        let ui = self
+            .ui
+            .lock()
+            .map_err(|e| format!("player lock poisoned: {e}"))?;
+        Ok(PlayerStatus {
+            position_secs: position,
+            duration_secs: duration,
+            paused: state == PlayerState::Paused,
+            speed: ui.speed,
+            volume: ui.volume,
+            muted: ui.muted,
+            audio_only: ui.audio_only,
+            quality_height: ui.quality_height,
+        })
+    }
+}
+
 pub enum PlayerSlot {
     Disabled,
     /// Boxed so the variants stay close in size
     /// (clippy::large_enum_variant).
     #[cfg(feature = "mpv")]
-    Ready(Box<Mutex<player::PlayerService>>),
+    Ready(Box<ReadyPlayer>),
 }
 
-impl Default for PlayerSlot {
-    fn default() -> Self {
-        Self::new()
+impl PlayerSlot {
+    pub fn new(session: SharedSession, ytdlp_path: Option<String>) -> Self {
+        #[cfg(feature = "mpv")]
+        {
+            let resolver = Arc::new(SessionResolver::new(
+                session,
+                resolve_ytdlp_path(ytdlp_path),
+            ));
+            let cache = cache_dir();
+            match player::MpvControlImpl::new(&player::MpvConfig::video(cache.clone())) {
+                Ok(control) => {
+                    match player::Player::new(
+                        resolver,
+                        Box::new(control),
+                        PathBuf::from(cache),
+                        720,
+                    ) {
+                        Ok(player) => {
+                            // Spawn the event pump: it polls mpv's
+                            // position, drives URL-failure recovery,
+                            // and keeps the state `player_status`
+                            // reads fresh. Runs until the app exits.
+                            let pump = player.clone();
+                            tauri::async_runtime::spawn(async move {
+                                pump.run_event_loop().await;
+                            });
+                            return Self::Ready(Box::new(ReadyPlayer {
+                                player,
+                                ui: Mutex::new(SlotUi::default()),
+                            }));
+                        }
+                        Err(e) => {
+                            tracing::warn!("player failed to initialise ({e}); playback disabled");
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("libmpv failed to initialise ({e}); playback disabled");
+                }
+            }
+        }
+        #[cfg(not(feature = "mpv"))]
+        {
+            let _ = (session, ytdlp_path);
+        }
+        Self::Disabled
+    }
+
+    const DISABLED_MSG: &'static str = "playback unavailable: this build was compiled without the `mpv` feature, or libmpv failed to initialise";
+
+    pub async fn play(&self) -> Result<PlayerStatus, String> {
+        match self {
+            Self::Disabled => Err(Self::DISABLED_MSG.into()),
+            #[cfg(feature = "mpv")]
+            Self::Ready(ready) => {
+                ready.player.resume().await.map_err(|e| e.to_string())?;
+                ready.status().await
+            }
+        }
+    }
+
+    pub async fn pause(&self) -> Result<PlayerStatus, String> {
+        match self {
+            Self::Disabled => Err(Self::DISABLED_MSG.into()),
+            #[cfg(feature = "mpv")]
+            Self::Ready(ready) => {
+                ready.player.pause().await.map_err(|e| e.to_string())?;
+                ready.status().await
+            }
+        }
+    }
+
+    pub async fn toggle(&self) -> Result<PlayerStatus, String> {
+        match self {
+            Self::Disabled => Err(Self::DISABLED_MSG.into()),
+            #[cfg(feature = "mpv")]
+            Self::Ready(ready) => {
+                match ready.player.state().await {
+                    PlayerState::Paused => {
+                        ready.player.resume().await.map_err(|e| e.to_string())?;
+                    }
+                    PlayerState::Playing => {
+                        ready.player.pause().await.map_err(|e| e.to_string())?;
+                    }
+                    // Idle / Loading / Ended / Error: nothing to toggle.
+                    _ => {}
+                }
+                ready.status().await
+            }
+        }
+    }
+
+    pub async fn seek_to(&self, secs: f64) -> Result<PlayerStatus, String> {
+        #[cfg(not(feature = "mpv"))]
+        let _ = secs;
+        match self {
+            Self::Disabled => Err(Self::DISABLED_MSG.into()),
+            #[cfg(feature = "mpv")]
+            Self::Ready(ready) => {
+                ready.player.seek(secs).await.map_err(|e| e.to_string())?;
+                ready.status().await
+            }
+        }
+    }
+
+    pub async fn set_speed(&self, speed: f64) -> Result<PlayerStatus, String> {
+        #[cfg(not(feature = "mpv"))]
+        let _ = speed;
+        match self {
+            Self::Disabled => Err(Self::DISABLED_MSG.into()),
+            #[cfg(feature = "mpv")]
+            Self::Ready(ready) => {
+                let speed = speed.clamp(0.25, 3.0);
+                ready
+                    .player
+                    .set_option("speed", &speed.to_string())
+                    .await
+                    .map_err(|e| e.to_string())?;
+                {
+                    let mut ui = ready
+                        .ui
+                        .lock()
+                        .map_err(|e| format!("player lock poisoned: {e}"))?;
+                    ui.speed = speed;
+                }
+                ready.status().await
+            }
+        }
+    }
+
+    pub async fn set_audio_only(&self, audio_only: bool) -> Result<PlayerStatus, String> {
+        #[cfg(not(feature = "mpv"))]
+        let _ = audio_only;
+        match self {
+            Self::Disabled => Err(Self::DISABLED_MSG.into()),
+            #[cfg(feature = "mpv")]
+            Self::Ready(ready) => {
+                ready
+                    .player
+                    .set_option("vid", if audio_only { "no" } else { "auto" })
+                    .await
+                    .map_err(|e| e.to_string())?;
+                {
+                    let mut ui = ready
+                        .ui
+                        .lock()
+                        .map_err(|e| format!("player lock poisoned: {e}"))?;
+                    ui.audio_only = audio_only;
+                    if audio_only {
+                        ui.quality_height = None;
+                    } else if ui.quality_height.is_none() {
+                        ui.quality_height = Some(720);
+                    }
+                }
+                ready.status().await
+            }
+        }
+    }
+
+    pub async fn load_subtitles(&self, path: &str) -> Result<PlayerStatus, String> {
+        #[cfg(not(feature = "mpv"))]
+        let _ = path;
+        match self {
+            Self::Disabled => Err(Self::DISABLED_MSG.into()),
+            #[cfg(feature = "mpv")]
+            Self::Ready(ready) => {
+                ready
+                    .player
+                    .load_subtitles(path)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                ready.status().await
+            }
+        }
+    }
+
+    pub async fn clear_subtitles(&self) -> Result<PlayerStatus, String> {
+        match self {
+            Self::Disabled => Err(Self::DISABLED_MSG.into()),
+            #[cfg(feature = "mpv")]
+            Self::Ready(ready) => {
+                ready
+                    .player
+                    .disable_subtitles()
+                    .await
+                    .map_err(|e| e.to_string())?;
+                ready.status().await
+            }
+        }
+    }
+
+    pub async fn set_volume(&self, volume: f64) -> Result<PlayerStatus, String> {
+        #[cfg(not(feature = "mpv"))]
+        let _ = volume;
+        match self {
+            Self::Disabled => Err(Self::DISABLED_MSG.into()),
+            #[cfg(feature = "mpv")]
+            Self::Ready(ready) => {
+                let volume = volume.clamp(0.0, 100.0);
+                ready
+                    .player
+                    .set_option("volume", &volume.to_string())
+                    .await
+                    .map_err(|e| e.to_string())?;
+                {
+                    let mut ui = ready
+                        .ui
+                        .lock()
+                        .map_err(|e| format!("player lock poisoned: {e}"))?;
+                    ui.volume = volume;
+                }
+                ready.status().await
+            }
+        }
+    }
+
+    pub async fn set_muted(&self, muted: bool) -> Result<PlayerStatus, String> {
+        #[cfg(not(feature = "mpv"))]
+        let _ = muted;
+        match self {
+            Self::Disabled => Err(Self::DISABLED_MSG.into()),
+            #[cfg(feature = "mpv")]
+            Self::Ready(ready) => {
+                ready
+                    .player
+                    .set_option("mute", if muted { "yes" } else { "no" })
+                    .await
+                    .map_err(|e| e.to_string())?;
+                {
+                    let mut ui = ready
+                        .ui
+                        .lock()
+                        .map_err(|e| format!("player lock poisoned: {e}"))?;
+                    ui.muted = muted;
+                }
+                ready.status().await
+            }
+        }
+    }
+
+    pub async fn next_id(&self) -> Result<Option<String>, String> {
+        match self {
+            Self::Disabled => Err(Self::DISABLED_MSG.into()),
+            #[cfg(feature = "mpv")]
+            Self::Ready(_) => Ok(None),
+        }
+    }
+
+    /// Resolve via yt-dlp and play from the start. `audio_only`
+    /// resolves at 144p (the video track is fetched but never
+    /// decoded — `vid=no` — so the smallest height wastes the least
+    /// bandwidth); otherwise `max_height` is the resolve cap and the
+    /// reported quality. Resolve errors (including a missing yt-dlp,
+    /// which names the install/update command) surface as strings.
+    pub async fn play_video(
+        &self,
+        id: &str,
+        audio_only: bool,
+        max_height: u32,
+    ) -> Result<PlayerStatus, String> {
+        #[cfg(not(feature = "mpv"))]
+        let _ = (id, audio_only, max_height);
+        match self {
+            Self::Disabled => Err(Self::DISABLED_MSG.into()),
+            #[cfg(feature = "mpv")]
+            Self::Ready(ready) => {
+                ready.player.set_max_height(max_height).await;
+                ready
+                    .player
+                    .set_option("vid", if audio_only { "no" } else { "auto" })
+                    .await
+                    .map_err(|e| e.to_string())?;
+                ready.player.play(id).await.map_err(|e| e.to_string())?;
+                {
+                    let mut ui = ready
+                        .ui
+                        .lock()
+                        .map_err(|e| format!("player lock poisoned: {e}"))?;
+                    ui.audio_only = audio_only;
+                    ui.quality_height = if audio_only { None } else { Some(max_height) };
+                }
+                ready.status().await
+            }
+        }
+    }
+
+    pub async fn status(&self) -> Result<PlayerStatus, String> {
+        match self {
+            Self::Disabled => Err(Self::DISABLED_MSG.into()),
+            #[cfg(feature = "mpv")]
+            Self::Ready(ready) => ready.status().await,
+        }
     }
 }
 
@@ -59,302 +543,6 @@ pub fn cache_dir() -> String {
     })
 }
 
-impl PlayerSlot {
-    pub fn new() -> Self {
-        #[cfg(feature = "mpv")]
-        {
-            let cache_dir = cache_dir();
-            match player::PlayerService::new(&player::MpvConfig::video(cache_dir)) {
-                Ok(service) => return Self::Ready(Box::new(Mutex::new(service))),
-                Err(e) => {
-                    tracing::warn!("libmpv failed to initialise ({e}); playback disabled");
-                }
-            }
-        }
-        Self::Disabled
-    }
-
-    const DISABLED_MSG: &'static str = "playback unavailable: this build was compiled without the `mpv` feature, or libmpv failed to initialise";
-
-    /// Run `f` against the live service, or return the disabled error.
-    /// mpv-only: without the feature there is no `PlayerService` type,
-    /// so callers use the `PlayerSlot` methods below, whose bodies are
-    /// cfg-gated instead of routing through this helper.
-    #[cfg(feature = "mpv")]
-    pub fn with_service<R>(
-        &self,
-        f: impl FnOnce(&mut player::PlayerService) -> Result<R, String>,
-    ) -> Result<R, String> {
-        match self {
-            Self::Disabled => Err(Self::DISABLED_MSG.into()),
-            Self::Ready(mutex) => {
-                let mut service = mutex
-                    .lock()
-                    .map_err(|e| format!("player lock poisoned: {e}"))?;
-                f(&mut service)
-            }
-        }
-    }
-
-    /// Drive one command against the service and return the fresh status.
-    /// Each method is a single cfg-gated body so the non-mpv build never
-    /// names the `PlayerService` type.
-    pub fn play(&self) -> Result<PlayerStatus, String> {
-        #[cfg(feature = "mpv")]
-        {
-            self.with_service(|svc| {
-                svc.play().map_err(|e| e.to_string())?;
-                Ok(status_of(svc))
-            })
-        }
-        #[cfg(not(feature = "mpv"))]
-        {
-            Err(Self::DISABLED_MSG.into())
-        }
-    }
-
-    pub fn pause(&self) -> Result<PlayerStatus, String> {
-        #[cfg(feature = "mpv")]
-        {
-            self.with_service(|svc| {
-                svc.pause().map_err(|e| e.to_string())?;
-                Ok(status_of(svc))
-            })
-        }
-        #[cfg(not(feature = "mpv"))]
-        {
-            Err(Self::DISABLED_MSG.into())
-        }
-    }
-
-    pub fn toggle(&self) -> Result<PlayerStatus, String> {
-        #[cfg(feature = "mpv")]
-        {
-            self.with_service(|svc| {
-                svc.toggle_pause().map_err(|e| e.to_string())?;
-                Ok(status_of(svc))
-            })
-        }
-        #[cfg(not(feature = "mpv"))]
-        {
-            Err(Self::DISABLED_MSG.into())
-        }
-    }
-
-    pub fn seek_to(&self, secs: f64) -> Result<PlayerStatus, String> {
-        #[cfg(feature = "mpv")]
-        {
-            self.with_service(|svc| {
-                svc.seek_to(secs).map_err(|e| e.to_string())?;
-                Ok(status_of(svc))
-            })
-        }
-        #[cfg(not(feature = "mpv"))]
-        {
-            let _ = secs;
-            Err(Self::DISABLED_MSG.into())
-        }
-    }
-
-    pub fn set_speed(&self, speed: f64) -> Result<PlayerStatus, String> {
-        #[cfg(feature = "mpv")]
-        {
-            self.with_service(|svc| {
-                svc.set_speed(speed).map_err(|e| e.to_string())?;
-                Ok(status_of(svc))
-            })
-        }
-        #[cfg(not(feature = "mpv"))]
-        {
-            let _ = speed;
-            Err(Self::DISABLED_MSG.into())
-        }
-    }
-
-    pub fn set_audio_only(&self, audio_only: bool) -> Result<PlayerStatus, String> {
-        #[cfg(feature = "mpv")]
-        {
-            self.with_service(|svc| {
-                svc.set_audio_only(audio_only).map_err(|e| e.to_string())?;
-                Ok(status_of(svc))
-            })
-        }
-        #[cfg(not(feature = "mpv"))]
-        {
-            let _ = audio_only;
-            Err(Self::DISABLED_MSG.into())
-        }
-    }
-
-    pub fn load_subtitles_file(
-        &self,
-        path: &str,
-        lang: Option<String>,
-    ) -> Result<PlayerStatus, String> {
-        #[cfg(feature = "mpv")]
-        {
-            self.with_service(|svc| {
-                svc.load_subtitles_file(path, lang)
-                    .map_err(|e| e.to_string())?;
-                Ok(status_of(svc))
-            })
-        }
-        #[cfg(not(feature = "mpv"))]
-        {
-            let _ = (path, lang);
-            Err(Self::DISABLED_MSG.into())
-        }
-    }
-
-    pub fn clear_subtitles(&self) -> Result<PlayerStatus, String> {
-        #[cfg(feature = "mpv")]
-        {
-            self.with_service(|svc| {
-                svc.disable_subtitles().map_err(|e| e.to_string())?;
-                Ok(status_of(svc))
-            })
-        }
-        #[cfg(not(feature = "mpv"))]
-        {
-            Err(Self::DISABLED_MSG.into())
-        }
-    }
-
-    pub fn set_volume(&self, volume: f64) -> Result<PlayerStatus, String> {
-        #[cfg(feature = "mpv")]
-        {
-            self.with_service(|svc| {
-                svc.set_volume(volume).map_err(|e| e.to_string())?;
-                Ok(status_of(svc))
-            })
-        }
-        #[cfg(not(feature = "mpv"))]
-        {
-            let _ = volume;
-            Err(Self::DISABLED_MSG.into())
-        }
-    }
-
-    pub fn set_muted(&self, muted: bool) -> Result<PlayerStatus, String> {
-        #[cfg(feature = "mpv")]
-        {
-            self.with_service(|svc| {
-                svc.set_muted(muted).map_err(|e| e.to_string())?;
-                Ok(status_of(svc))
-            })
-        }
-        #[cfg(not(feature = "mpv"))]
-        {
-            let _ = muted;
-            Err(Self::DISABLED_MSG.into())
-        }
-    }
-
-    pub fn next_id(&self) -> Result<Option<String>, String> {
-        #[cfg(feature = "mpv")]
-        {
-            self.with_service(|svc| Ok(svc.advance_queue().map(|item| item.video_id.0.clone())))
-        }
-        #[cfg(not(feature = "mpv"))]
-        {
-            Err(Self::DISABLED_MSG.into())
-        }
-    }
-
-    /// Load a resolved DASH pair into the service and start playing.
-    /// `audio_only` / `quality_height` are applied to the state before
-    /// the load so the new item starts with the right settings.
-    #[cfg(feature = "mpv")]
-    pub fn load_and_play(
-        &self,
-        video_url: String,
-        audio_url: Option<String>,
-        id: VideoId,
-        audio_only: bool,
-        quality_height: Option<u32>,
-    ) -> Result<PlayerStatus, String> {
-        self.with_service(|svc| {
-            svc.queue = player::Queue::new(vec![player::QueueItem {
-                video_id: id,
-                title: String::new(),
-                resume_secs: None,
-            }]);
-            svc.state.set_audio_only(audio_only);
-            svc.state.quality_switch(quality_height);
-            svc.load_pair(&video_url, audio_url.as_deref())
-                .map_err(|e| e.to_string())?;
-            svc.play().map_err(|e| e.to_string())?;
-            Ok(status_of(svc))
-        })
-    }
-
-    pub fn status(&self) -> Result<PlayerStatus, String> {
-        #[cfg(feature = "mpv")]
-        {
-            self.with_service(|svc| {
-                svc.sync_position();
-                Ok(status_of(svc))
-            })
-        }
-        #[cfg(not(feature = "mpv"))]
-        {
-            Err(Self::DISABLED_MSG.into())
-        }
-    }
-}
-
-#[cfg(feature = "mpv")]
-fn status_of(svc: &mut player::PlayerService) -> PlayerStatus {
-    PlayerStatus {
-        position_secs: svc.state.position_secs,
-        duration_secs: svc.state.duration_secs,
-        paused: svc.state.paused,
-        speed: svc.state.speed,
-        volume: svc.state.volume,
-        muted: svc.state.muted,
-        audio_only: svc.state.audio_only,
-        quality_height: svc.state.quality_height,
-    }
-}
-
-fn pref_from_height(height: Option<u32>) -> QualityPref {
-    match height {
-        None => QualityPref::AudioOnly,
-        Some(0) => QualityPref::Auto,
-        Some(h) => QualityPref::Height(h),
-    }
-}
-
-/// Pick the URLs mpv should load for a resolved `PlayableMedia`.
-/// Returns (main_url, extra_audio_url). In audio-only mode there is no
-/// video format — the audio stream itself is the main file, which mpv
-/// plays standalone; the old code errored here ("no video stream"),
-/// which made audio-only playback via `play_video` impossible.
-fn urls_for_pref(
-    media: &yt_model::PlayableMedia,
-    pref: QualityPref,
-) -> Result<(String, Option<String>), String> {
-    match pref {
-        QualityPref::AudioOnly => {
-            let audio = media
-                .audio
-                .as_ref()
-                .map(|f| f.url.clone())
-                .ok_or_else(|| "no audio stream for this video".to_string())?;
-            Ok((audio, None))
-        }
-        _ => {
-            let video = media
-                .video
-                .as_ref()
-                .map(|f| f.url.clone())
-                .ok_or_else(|| "no video stream for this quality".to_string())?;
-            let audio = media.audio.as_ref().map(|f| f.url.clone());
-            Ok((video, audio))
-        }
-    }
-}
-
 #[tauri::command]
 pub async fn play_video(
     window: WebviewWindow,
@@ -363,90 +551,71 @@ pub async fn play_video(
     height: Option<u32>,
 ) -> Result<PlayerStatus, String> {
     check_window(&window)?;
-    let pref = pref_from_height(height);
-    let media = state
-        .source
-        .playable(&VideoId(id.clone()), pref)
-        .await
-        .map_err(|e| e.to_string())?;
-    let (video_url, audio_url) = urls_for_pref(&media, pref)?;
-    let (audio_only, quality_height) = match pref {
-        QualityPref::AudioOnly => (true, None),
-        QualityPref::Auto => (false, Some(720)),
-        QualityPref::Height(h) => (false, Some(h)),
+    // Same mapping the old `play_video` used: no height means
+    // audio-only, 0 means auto (720p), anything else is the cap.
+    let (audio_only, max_height) = match height {
+        None => (true, 144),
+        Some(0) => (false, 720),
+        Some(h) => (false, h),
     };
-    #[cfg(feature = "mpv")]
-    {
-        state.player.load_and_play(
-            video_url,
-            audio_url,
-            VideoId(id),
-            audio_only,
-            quality_height,
-        )
-    }
-    #[cfg(not(feature = "mpv"))]
-    {
-        let _ = (video_url, audio_url, audio_only, quality_height);
-        Err("playback unavailable: this build was compiled without the `mpv` feature".into())
-    }
+    state.player.play_video(&id, audio_only, max_height).await
 }
 
 #[tauri::command]
-pub fn player_play(
+pub async fn player_play(
     window: WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<PlayerStatus, String> {
     check_window(&window)?;
-    state.player.play()
+    state.player.play().await
 }
 
 #[tauri::command]
-pub fn player_pause(
+pub async fn player_pause(
     window: WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<PlayerStatus, String> {
     check_window(&window)?;
-    state.player.pause()
+    state.player.pause().await
 }
 
 #[tauri::command]
-pub fn player_toggle(
+pub async fn player_toggle(
     window: WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<PlayerStatus, String> {
     check_window(&window)?;
-    state.player.toggle()
+    state.player.toggle().await
 }
 
 #[tauri::command]
-pub fn player_seek(
+pub async fn player_seek(
     window: WebviewWindow,
     state: State<'_, AppState>,
     secs: f64,
 ) -> Result<PlayerStatus, String> {
     check_window(&window)?;
-    state.player.seek_to(secs)
+    state.player.seek_to(secs).await
 }
 
 #[tauri::command]
-pub fn player_set_speed(
+pub async fn player_set_speed(
     window: WebviewWindow,
     state: State<'_, AppState>,
     speed: f64,
 ) -> Result<PlayerStatus, String> {
     check_window(&window)?;
-    state.player.set_speed(speed)
+    state.player.set_speed(speed).await
 }
 
 #[tauri::command]
-pub fn player_set_audio_only(
+pub async fn player_set_audio_only(
     window: WebviewWindow,
     state: State<'_, AppState>,
     audio_only: bool,
 ) -> Result<PlayerStatus, String> {
     check_window(&window)?;
-    state.player.set_audio_only(audio_only)
+    state.player.set_audio_only(audio_only).await
 }
 
 /// Fetch a caption track for the video, convert it to WebVTT in the
@@ -510,110 +679,60 @@ pub async fn player_load_captions(
     let path = dir.join(format!("{safe_id}-{safe_lang}.vtt"));
     std::fs::write(&path, yt_source::to_vtt(&cues)).map_err(|e| e.to_string())?;
     let path_str = path.to_string_lossy().into_owned();
-    state
-        .player
-        .load_subtitles_file(&path_str, Some(lang.clone()))?;
+    state.player.load_subtitles(&path_str).await?;
     Ok(track.language_name.clone())
 }
 
 #[tauri::command]
-pub fn player_set_volume(
+pub async fn player_set_volume(
     window: WebviewWindow,
     state: State<'_, AppState>,
     volume: f64,
 ) -> Result<PlayerStatus, String> {
     check_window(&window)?;
-    state.player.set_volume(volume)
+    state.player.set_volume(volume).await
 }
 
 #[tauri::command]
-pub fn player_set_muted(
+pub async fn player_set_muted(
     window: WebviewWindow,
     state: State<'_, AppState>,
     muted: bool,
 ) -> Result<PlayerStatus, String> {
     check_window(&window)?;
-    state.player.set_muted(muted)
+    state.player.set_muted(muted).await
 }
 
 #[tauri::command]
-pub fn player_clear_captions(
+pub async fn player_clear_captions(
     window: WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<PlayerStatus, String> {
     check_window(&window)?;
-    state.player.clear_subtitles()
+    state.player.clear_subtitles().await
 }
 
 #[tauri::command]
-pub fn player_status(
+pub async fn player_status(
     window: WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<PlayerStatus, String> {
     check_window(&window)?;
-    state.player.status()
+    state.player.status().await
 }
 
 #[tauri::command]
-pub fn player_next(
+pub async fn player_next(
     window: WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<Option<String>, String> {
     check_window(&window)?;
-    state.player.next_id()
+    state.player.next_id().await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn fake_media(with_video: bool) -> yt_model::PlayableMedia {
-        yt_model::PlayableMedia {
-            video_id: VideoId("dQw4w9WgXcQ".into()),
-            video: with_video.then(|| yt_model::Format {
-                itag: 247,
-                mime_type: "video/webm".into(),
-                height: Some(720),
-                bitrate: Some(2_500_000),
-                url: "https://example.invalid/video".into(),
-                expires_at_unix: Some(1_900_000_000),
-            }),
-            audio: Some(yt_model::Format {
-                itag: 251,
-                mime_type: "audio/webm".into(),
-                height: None,
-                bitrate: Some(160_000),
-                url: "https://example.invalid/audio".into(),
-                expires_at_unix: Some(1_900_000_000),
-            }),
-            candidates: vec![],
-            expires_at_unix: Some(1_900_000_000),
-        }
-    }
-
-    #[test]
-    fn urls_for_pref_audio_only_uses_audio_as_main_file() {
-        let media = fake_media(false); // no video format, as sources return
-        let (main, extra) = urls_for_pref(&media, QualityPref::AudioOnly).unwrap();
-        assert_eq!(main, "https://example.invalid/audio");
-        assert_eq!(extra, None);
-    }
-
-    #[test]
-    fn urls_for_pref_video_returns_pair() {
-        let media = fake_media(true);
-        let (main, extra) = urls_for_pref(&media, QualityPref::Height(720)).unwrap();
-        assert_eq!(main, "https://example.invalid/video");
-        assert_eq!(extra.as_deref(), Some("https://example.invalid/audio"));
-    }
-
-    #[test]
-    fn urls_for_pref_errors_when_stream_missing() {
-        let mut media = fake_media(false);
-        media.audio = None;
-        assert!(urls_for_pref(&media, QualityPref::AudioOnly).is_err());
-        assert!(urls_for_pref(&media, QualityPref::Height(720)).is_err());
-    }
 
     #[test]
     fn status_serializes() {
@@ -632,41 +751,81 @@ mod tests {
         assert!(json.contains("\"quality_height\":720"));
     }
 
-    #[cfg(not(feature = "mpv"))]
     #[test]
-    fn slot_disabled_without_feature() {
-        let slot = PlayerSlot::new();
-        assert!(matches!(slot, PlayerSlot::Disabled));
-        let err = slot.status().unwrap_err();
-        assert!(err.contains("mpv"), "disabled error should name mpv: {err}");
+    fn cookie_header_to_netscape_converts_pairs() {
+        let netscape =
+            cookie_header_to_netscape("SAPISID=abc123; SID=xyz; __Secure-3PAPISID=qrs").unwrap();
+        assert!(netscape.starts_with("# Netscape HTTP Cookie File\n"));
+        for (name, value) in [
+            ("SAPISID", "abc123"),
+            ("SID", "xyz"),
+            ("__Secure-3PAPISID", "qrs"),
+        ] {
+            assert!(
+                netscape.contains(".youtube.com\tTRUE\t/\tTRUE\t"),
+                "missing .youtube.com line for {name}"
+            );
+            assert!(
+                netscape.contains(&format!("\t{name}\t{value}\n")),
+                "missing {name}={value} line"
+            );
+        }
+    }
+
+    #[test]
+    fn cookie_header_to_netscape_skips_empty_and_malformed() {
+        assert!(cookie_header_to_netscape("").is_none());
+        assert!(cookie_header_to_netscape("SID=; SAPISID=").is_none());
+        assert!(cookie_header_to_netscape("not-a-pair").is_none());
+        let netscape = cookie_header_to_netscape("SID=; SAPISID=abc").unwrap();
+        assert!(netscape.contains("\tSAPISID\tabc\n"));
+        assert!(!netscape.contains("SID"));
     }
 
     #[cfg(feature = "mpv")]
     #[test]
-    fn slot_drives_fixture() {
-        let slot = PlayerSlot::new();
-        slot.with_service(|svc| {
-            svc.set_option("vo", "null").map_err(|e| e.to_string())?;
-            svc.set_option("ao", "null").map_err(|e| e.to_string())?;
-            Ok(())
-        })
-        .unwrap();
-        let fixture = format!(
-            "{}/../crates/player/tests/fixtures/test-60s.mp4",
-            env!("CARGO_MANIFEST_DIR")
+    fn ytdlp_path_prefers_setting_then_sidecar_then_path() {
+        assert_eq!(
+            resolve_ytdlp_path(Some("/custom/yt-dlp".into())),
+            PathBuf::from("/custom/yt-dlp")
         );
-        let url = format!("file://{fixture}");
-        let status = slot
-            .load_and_play(url, None, VideoId("test-fixture".into()), false, Some(720))
-            .unwrap();
+        assert_eq!(
+            resolve_ytdlp_path(Some("   ".into())).file_name().unwrap(),
+            "yt-dlp"
+        );
+        // No sidecar sits next to the test binary: falls back to PATH.
+        assert_eq!(resolve_ytdlp_path(None).file_name().unwrap(), "yt-dlp");
+    }
+
+    #[cfg(not(feature = "mpv"))]
+    #[tokio::test]
+    async fn slot_disabled_without_feature() {
+        let slot = PlayerSlot::new(SharedSession::default(), None);
+        assert!(matches!(slot, PlayerSlot::Disabled));
+        let err = slot.status().await.unwrap_err();
+        assert!(err.contains("mpv"), "disabled error should name mpv: {err}");
+        assert!(slot.next_id().await.is_err());
+    }
+
+    #[cfg(feature = "mpv")]
+    #[tokio::test]
+    async fn slot_reports_defaults_and_clamps_speed() {
+        let slot = PlayerSlot::new(SharedSession::default(), None);
+        // No libmpv in this environment: construction degrades to
+        // Disabled instead of failing. On a machine with libmpv it is
+        // Ready and the assertions below run.
+        let PlayerSlot::Ready(_) = &slot else {
+            return;
+        };
+        let status = slot.status().await.unwrap();
+        assert_eq!(status.position_secs, 0.0);
         assert!(!status.paused);
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        let status = slot.status().unwrap();
-        assert!(
-            status.position_secs > 0.5,
-            "position did not advance: {}",
-            status.position_secs
-        );
-        assert_eq!(status.duration_secs.map(|d| d.round()), Some(60.0));
+        assert_eq!(status.speed, 1.0);
+        assert_eq!(status.volume, 100.0);
+        assert_eq!(status.quality_height, Some(720));
+        let status = slot.set_speed(99.0).await.unwrap();
+        assert_eq!(status.speed, 3.0, "speed clamps to 0.25–3.0");
+        let status = slot.set_speed(0.1).await.unwrap();
+        assert_eq!(status.speed, 0.25);
     }
 }

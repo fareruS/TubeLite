@@ -18,10 +18,7 @@ use yt_model::{
     Capabilities, ChannelId, ChannelPage, Page, PlayableMedia, PlaylistId, QualityPref, VideoCard,
     VideoDetails, VideoId,
 };
-use yt_source::{
-    traits::{SearchKind, SearchQuery},
-    StreamSource,
-};
+use yt_source::StreamSource;
 
 pub struct AppState {
     pub store: Mutex<store::Store>,
@@ -57,16 +54,12 @@ async fn search_videos(
     window: WebviewWindow,
     state: State<'_, AppState>,
     query: String,
-) -> Result<Page<VideoCard>, String> {
+) -> Result<FeedPage, String> {
     check_window(&window)?;
-    state
-        .source
-        .search(&SearchQuery {
-            text: query,
-            kind: SearchKind::All,
-        })
-        .await
-        .map_err(|e| e.to_string())
+    let Some(feeds) = &state.feeds else {
+        return Err("live feeds unavailable: the InnerTube client did not build".into());
+    };
+    feeds.search(&query, None).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -255,6 +248,112 @@ async fn get_home_feed(
     feeds.home().await.map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn get_subscriptions(
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<FeedPage, String> {
+    check_window(&window)?;
+    let Some(feeds) = &state.feeds else {
+        return Err("live feeds unavailable: the InnerTube client did not build".into());
+    };
+    feeds.subscriptions().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_history(
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<FeedPage, String> {
+    check_window(&window)?;
+    let Some(feeds) = &state.feeds else {
+        return Err("live feeds unavailable: the InnerTube client did not build".into());
+    };
+    feeds.history().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_library_playlists(
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<FeedPage, String> {
+    check_window(&window)?;
+    let Some(feeds) = &state.feeds else {
+        return Err("live feeds unavailable: the InnerTube client did not build".into());
+    };
+    feeds.library_playlists().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_playlist_feed(
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+    browse_id: String,
+) -> Result<FeedPage, String> {
+    check_window(&window)?;
+    let Some(feeds) = &state.feeds else {
+        return Err("live feeds unavailable: the InnerTube client did not build".into());
+    };
+    feeds.playlist(&browse_id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_watch_later(
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<FeedPage, String> {
+    check_window(&window)?;
+    let Some(feeds) = &state.feeds else {
+        return Err("live feeds unavailable: the InnerTube client did not build".into());
+    };
+    feeds.watch_later().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_channel_videos(
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+    channel_id: String,
+) -> Result<FeedPage, String> {
+    check_window(&window)?;
+    let Some(feeds) = &state.feeds else {
+        return Err("live feeds unavailable: the InnerTube client did not build".into());
+    };
+    feeds
+        .channel_videos(&channel_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_watch_next(
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+    video_id: String,
+) -> Result<FeedPage, String> {
+    check_window(&window)?;
+    let Some(feeds) = &state.feeds else {
+        return Err("live feeds unavailable: the InnerTube client did not build".into());
+    };
+    feeds.watch_next(&video_id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_home_continuation(
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+    token: String,
+) -> Result<FeedPage, String> {
+    check_window(&window)?;
+    let Some(feeds) = &state.feeds else {
+        return Err("live feeds unavailable: the InnerTube client did not build".into());
+    };
+    feeds
+        .home_continuation(&token)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 fn now_unix() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -433,13 +532,17 @@ pub fn run() {
                 .map_err(|e| format!("cannot resolve app-data dir: {e}"))?;
             let app_store = open_app_store(&app_data_dir)?;
 
-            // Source chain from settings; defaults to the fixture source
-            // while live InnerTube is unverified (see source.rs +
-            // KNOWN-ISSUES.md).
-            let source_mode = app_store.get_setting("source_mode").ok().flatten();
+            // Source chain from settings; defaults to the live
+            // InnerTube chain when no source_mode is stored (the
+            // fixture source is only used when source_mode is
+            // explicitly "fixture" — see source.rs).
+            let source_mode = app_store
+                .get_setting("source_mode")
+                .ok()
+                .flatten()
+                .or_else(|| Some("innertube".to_string()));
             let ytdlp_path = app_store.get_setting("ytdlp_path").ok().flatten();
             let source = AnySource::from_settings(source_mode, ytdlp_path);
-            let player = player_ipc::PlayerSlot::new();
 
             // Accounts: metadata in accounts.db, the cookie itself in
             // the OS keyring (or an encrypted file when no keyring is
@@ -467,6 +570,17 @@ pub fn run() {
             if let Err(e) = tauri::async_runtime::block_on(manager.load_active()) {
                 tracing::warn!("could not restore the saved session ({e}); starting signed out");
             }
+            // Playback: the new player resolves via yt-dlp, with
+            // cookies read live from the accounts session (so a
+            // sign-in after startup is picked up). Built here, after
+            // the session manager exists. A failed libmpv init
+            // degrades to Disabled; startup never fails over it.
+            // `ytdlp_path` was moved into the source chain above, so
+            // it is read from the store again here.
+            let player = player_ipc::PlayerSlot::new(
+                manager.session().clone(),
+                app_store.get_setting("ytdlp_path").ok().flatten(),
+            );
             // The background task that writes rotated cookies back to
             // the secret store. `spawn_cookie_sync` needs a runtime
             // context, so it runs inside this spawned task.
@@ -527,6 +641,14 @@ pub fn run() {
             import_cookies,
             secret_backend,
             get_home_feed,
+            get_subscriptions,
+            get_history,
+            get_library_playlists,
+            get_playlist_feed,
+            get_watch_later,
+            get_channel_videos,
+            get_watch_next,
+            get_home_continuation,
             list_subscriptions,
             subscribe,
             unsubscribe,

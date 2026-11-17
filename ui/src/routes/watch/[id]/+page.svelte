@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { invoke } from '@tauri-apps/api/core';
-	import { reportVideoRect } from '$lib/api';
+	import { getWatchNext, reportVideoRect } from '$lib/api';
 	import { loadSettings } from '$lib/settings';
+	import VideoList from '$lib/VideoList.svelte';
+	import type { FeedItem } from '$lib/types';
 	import {
 		playVideo,
 		playerToggle,
@@ -38,6 +40,9 @@
 	let seeking = $state(false);
 	let theatre = $state(false);
 	let quality = $state('auto');
+	let upNext = $state<FeedItem[]>([]);
+	let upNextError = $state('');
+	let upNextLoading = $state(false);
 
 	// The chapter containing the current position, for highlighting.
 	let currentChapter = $derived.by(() => {
@@ -74,6 +79,23 @@
 			})
 			.catch(() => {
 				title = id;
+			});
+	});
+
+	// Up Next feed for this video.
+	$effect(() => {
+		if (!id) return;
+		upNextLoading = true;
+		upNextError = '';
+		getWatchNext(id)
+			.then((p) => {
+				upNext = p.items;
+			})
+			.catch((e) => {
+				upNextError = String(e);
+			})
+			.finally(() => {
+				upNextLoading = false;
 			});
 	});
 
@@ -237,13 +259,14 @@
 </script>
 
 <h1>{title || id}</h1>
+{#if error}
+	<p class="error-banner" role="alert">Playback unavailable: {error}</p>
+{/if}
 <div class:theatre>
 	<div id="video-hole" style="aspect-ratio: 16/9; background: #000;" onresize={onResize}></div>
 </div>
 
-{#if error}
-	<p class="error">Playback unavailable: {error}</p>
-{:else if status}
+{#if status}
 	<div class="controls">
 		<button onclick={() => playerToggle().then((st) => (status = st))}>
 			{status.paused ? '▶ Play' : '⏸ Pause'}
@@ -368,6 +391,14 @@
 	</section>
 {/if}
 
+<section aria-label="Up Next">
+	<h2>Up Next</h2>
+	{#if upNextLoading}<p>Loading…</p>{/if}
+	{#if upNextError}<p role="alert">couldn't load feed: {upNextError}</p>{/if}
+	{#if !upNextLoading && !upNextError && upNext.length === 0}<p>No up-next videos.</p>{/if}
+	<VideoList items={upNext} />
+</section>
+
 <p>Video is drawn by mpv, not by a &lt;video&gt; element, so audio and picture share one clock. Player surface is Phase 0/2.</p>
 <p>Keyboard: Space play/pause, J/K/L seek, F fullscreen, M mute, C captions. (Phase 4)</p>
 
@@ -389,6 +420,13 @@
 	}
 	.error {
 		color: var(--accent);
+	}
+	.error-banner {
+		background: var(--accent-soft);
+		border: 1px solid var(--accent);
+		padding: 0.75rem 1rem;
+		font-weight: 600;
+		margin: 0.75rem 0;
 	}
 	.chapter-now {
 		color: var(--muted);

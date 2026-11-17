@@ -1,44 +1,32 @@
 <script lang="ts">
-	import { invoke } from '@tauri-apps/api/core';
+	import { getSubscriptions } from '$lib/api';
+	import VideoList from '$lib/VideoList.svelte';
+	import type { FeedItem } from '$lib/types';
 
-	interface Subscription {
-		channel_id: string;
-		title: string;
-		added_at: number;
-	}
-
-	let subs = $state<Subscription[]>([]);
+	let items = $state<FeedItem[]>([]);
 	let error = $state('');
+	let loading = $state(false);
 
-	function load() {
-		invoke<Subscription[]>('list_subscriptions')
-			.then((s) => {
-				subs = s;
+	$effect(() => {
+		loading = true;
+		error = '';
+		getSubscriptions()
+			.then((page) => {
+				items = page.items;
 			})
 			.catch((e) => {
 				error = String(e);
+			})
+			.finally(() => {
+				loading = false;
 			});
-	}
-
-	$effect(load);
-
-	async function unsub(channelId: string) {
-		await invoke('unsubscribe', { channelId });
-		load();
-	}
+	});
 </script>
 
 <h1>Subscriptions</h1>
-{#if error}<p role="alert">{error}</p>{/if}
-{#if subs.length === 0 && !error}
+{#if loading}<p>Loading…</p>{/if}
+{#if error}<p role="alert">couldn't load feed: {error}</p>{/if}
+{#if !loading && !error && items.length === 0}
 	<p>No subscriptions yet — open a channel and hit Subscribe.</p>
-{:else}
-	<ul>
-		{#each subs as s (s.channel_id)}
-			<li>
-				<a href={`/channel/${s.channel_id}`}>{s.title}</a>
-				<button onclick={() => unsub(s.channel_id)}>Unsubscribe</button>
-			</li>
-		{/each}
-	</ul>
 {/if}
+<VideoList {items} />

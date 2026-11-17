@@ -125,6 +125,24 @@ impl MpvControl for SharedMpv {
         Ok(())
     }
 
+    fn load_subtitles(&mut self, path: &str) -> Result<(), PlayerError> {
+        self.0
+            .calls
+            .lock()
+            .unwrap()
+            .push(format!("load_subtitles {path}"));
+        Ok(())
+    }
+
+    fn disable_subtitles(&mut self) -> Result<(), PlayerError> {
+        self.0
+            .calls
+            .lock()
+            .unwrap()
+            .push("disable_subtitles".to_string());
+        Ok(())
+    }
+
     fn apply_stage1_options(&mut self, cache_dir: &Path) -> Result<(), PlayerError> {
         self.0
             .calls
