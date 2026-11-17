@@ -224,9 +224,7 @@ impl StreamSource for ExtractorSource {
 
     async fn playable(&self, id: &VideoId, pref: QualityPref) -> Result<PlayableMedia> {
         let args = build_args(id)?;
-        let run = sidecar_command(&self.binary)
-            .args(&args)
-            .output();
+        let run = sidecar_command(&self.binary).args(&args).output();
         let out = tokio::time::timeout(Duration::from_secs(self.timeout_secs), run)
             .await
             .map_err(|_| {

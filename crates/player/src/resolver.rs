@@ -465,7 +465,10 @@ impl YtDlpResolver {
     async fn ensure_version(&self) -> Result<(), ResolveError> {
         self.version_check
             .get_or_init(|| async {
-                let output = sidecar_command(&self.yt_dlp).arg("--version").output().await;
+                let output = sidecar_command(&self.yt_dlp)
+                    .arg("--version")
+                    .output()
+                    .await;
                 match output {
                     Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                         Err(ResolveError::YtDlpMissing {
